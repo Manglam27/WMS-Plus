@@ -152,6 +152,23 @@ A comprehensive **Warehouse Management System** designed to streamline order pro
 
 ---
 
+## Getting Started (Docker)
+
+**Prerequisites:** Docker and Docker Compose
+
+```bash
+# Start all services (client, server, MongoDB) with live reload
+docker compose up --build
+```
+
+- **Frontend:** http://localhost:3000
+- **Backend API:** http://localhost:5000
+- **MongoDB:** localhost:27017
+
+Code changes in `client/` and `server/` will hot-reload automatically.
+
+---
+
 ## License
 
 Unlicense — See [LICENSE](LICENSE) for details.

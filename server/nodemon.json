@@ -1,6 +1,7 @@
 {
-  "watch": ["src"],
+  "watch": ["src", "package.json"],
   "ext": "js,json",
   "ignore": ["node_modules"],
-  "exec": "node src/index.js"
+  "exec": "node src/index.js",
+  "legacyWatch": true
 }

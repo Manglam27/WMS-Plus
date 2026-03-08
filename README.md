@@ -165,7 +165,17 @@ docker compose up --build
 - **Backend API:** http://localhost:5000
 - **MongoDB:** localhost:27017
 
-Code changes in `client/` and `server/` will hot-reload automatically.
+**Default login:** `admin` / `admin`
+
+**Hot reload (no rebuild needed):** Source code is mounted as volumes. When you update files on the server (e.g. via `git pull`), changes are picked up automatically:
+- **Client:** Vite HMR reloads the frontend
+- **Server:** Nodemon restarts the Node process
+
+Rebuild only when you add new npm packages (`package.json` changes).
+
+### MongoDB Atlas
+
+To use MongoDB Atlas instead of local MongoDB, set `MONGODB_URI` in your environment (e.g. in `.env` or docker-compose) to your Atlas connection string.
 
 ---
 

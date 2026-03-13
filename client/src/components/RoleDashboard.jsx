@@ -1,7 +1,8 @@
 import { useAuth } from '../context/AuthContext'
 import DashboardPage from '../pages/DashboardPage'
-import InventoryManagerPage from '../pages/InventoryManagerPage'
+import AdminPage from '../pages/AdminPage'
 import AccountsPage from '../pages/AccountsPage'
+import InventoryManagerPage from '../pages/InventoryManagerPage'
 import SalesManagerPage from '../pages/SalesManagerPage'
 import OrderManagerPage from '../pages/OrderManagerPage'
 import InventoryReceiverPage from '../pages/InventoryReceiverPage'
@@ -11,7 +12,7 @@ import DriverPage from '../pages/DriverPage'
 import PickerPage from '../pages/PickerPage'
 
 const ROLE_PAGES = {
-  admin: DashboardPage,
+  admin: AdminPage,
   accounts: AccountsPage,
   order_manager: OrderManagerPage,
   inventory_manager: InventoryManagerPage,

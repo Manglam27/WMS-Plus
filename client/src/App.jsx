@@ -5,6 +5,18 @@ import Layout from './components/Layout'
 import LoginPage from './components/LoginPage'
 import RoleDashboard from './components/RoleDashboard'
 import AdminPage from './pages/AdminPage'
+import InventoryUpdateStockPage from './pages/InventoryUpdateStockPage'
+import AccountsPage from './pages/AccountsPage'
+import ProductListPage from './pages/ProductListPage'
+import NewProductPage from './pages/NewProductPage'
+import ProductLabelPrintPage from './pages/ProductLabelPrintPage'
+import PurchaseOrderDraftListPage from './pages/PurchaseOrderDraftListPage'
+import PurchaseOrderListPage from './pages/PurchaseOrderListPage'
+import VendorListPage from './pages/VendorListPage'
+import VendorPaymentPage from './pages/VendorPaymentPage'
+import VendorPaymentHistoryPage from './pages/VendorPaymentHistoryPage'
+import ReportsOnhandPage from './pages/ReportsOnhandPage'
+import ReportsManualStockUpdatePage from './pages/ReportsManualStockUpdatePage'
 
 function App() {
   return (
@@ -12,6 +24,15 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          {/* Standalone print route without navbar/sidebar */}
+          <Route
+            path="/products/print/:id"
+            element={
+              <ProtectedRoute>
+                <ProductLabelPrintPage />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/"
             element={
@@ -21,6 +42,24 @@ function App() {
             }
           >
             <Route index element={<RoleDashboard />} />
+            <Route path="inventory/update-stock" element={<InventoryUpdateStockPage />} />
+            <Route
+              path="accounts"
+              element={
+                <ProtectedRoute roles={['accounts', 'admin']}>
+                  <AccountsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="products/list" element={<ProductListPage />} />
+            <Route path="products/new" element={<NewProductPage />} />
+            <Route path="po/draft" element={<PurchaseOrderDraftListPage />} />
+            <Route path="po/list" element={<PurchaseOrderListPage />} />
+            <Route path="vendors/list" element={<VendorListPage />} />
+            <Route path="vendors/payment" element={<VendorPaymentPage />} />
+            <Route path="vendors/payment-history" element={<VendorPaymentHistoryPage />} />
+            <Route path="reports/onhand" element={<ReportsOnhandPage />} />
+            <Route path="reports/manual-stock-update" element={<ReportsManualStockUpdatePage />} />
             <Route
               path="admin"
               element={

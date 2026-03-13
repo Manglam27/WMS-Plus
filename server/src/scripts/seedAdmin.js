@@ -15,10 +15,10 @@ async function seedAdmin() {
     await User.create({
       name: 'Admin',
       username: 'admin',
-      password: 'admin',
+      password: 'admin123',
       role: 'admin',
     })
-    console.log('Admin user created (username: admin, password: admin)')
+    console.log('Admin user created (username: admin, password: admin123)')
     process.exit(0)
   } catch (error) {
     console.error('Seed error:', error)

@@ -154,14 +154,17 @@ function NewProductPage() {
   }
 
   // Keep a derived version for display/submit so Box/Case always reflect piece values.
-  const derivedPackings = useMemo(() => recomputePackings(packingRows.map((r) => ({ ...r })), -1, ''), [packingRows])
+  const derivedPackings = useMemo(
+    () => recomputePackings(packingRows.map((r) => ({ ...r })), -1, ''),
+    [packingRows],
+  )
 
   const handleSubmit = (e) => {
     e.preventDefault()
     setError('')
     setSuccess('')
 
-    const syncedPackings = derivedPackings
+    const syncedPackings = derivedPackings.filter((p) => p.enabled !== false)
 
     setSaving(true)
     const token = localStorage.getItem('token')

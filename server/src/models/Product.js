@@ -21,6 +21,21 @@ const packingSchema = new mongoose.Schema(
   { _id: false },
 )
 
+const stockHistorySchema = new mongoose.Schema(
+  {
+    at: { type: Date, default: Date.now },
+    oldStock: { type: Number, required: true },
+    delta: { type: Number, required: true },
+    newStock: { type: Number, required: true },
+    defaultUnitType: { type: String },
+    defaultUnitQty: { type: Number },
+    referenceId: { type: String },
+    userName: { type: String },
+    remark: { type: String },
+  },
+  { _id: false },
+)
+
 const productSchema = new mongoose.Schema(
   {
     category: { type: String, required: true },
@@ -40,6 +55,8 @@ const productSchema = new mongoose.Schema(
     location: { type: String },
     notes: { type: String },
     imageFileName: { type: String },
+    currentStock: { type: Number, default: 0 },
+    stockHistory: [stockHistorySchema],
     isActive: { type: Boolean, default: true },
     packings: [packingSchema],
   },

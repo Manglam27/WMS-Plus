@@ -10,6 +10,7 @@ import AccountsPage from './pages/AccountsPage'
 import ProductListPage from './pages/ProductListPage'
 import NewProductPage from './pages/NewProductPage'
 import ProductLabelPrintPage from './pages/ProductLabelPrintPage'
+import EditProductPage from './pages/EditProductPage'
 import PurchaseOrderDraftListPage from './pages/PurchaseOrderDraftListPage'
 import PurchaseOrderListPage from './pages/PurchaseOrderListPage'
 import VendorListPage from './pages/VendorListPage'
@@ -53,6 +54,14 @@ function App() {
             />
             <Route path="products/list" element={<ProductListPage />} />
             <Route path="products/new" element={<NewProductPage />} />
+            <Route
+              path="products/edit/:id"
+              element={
+                <ProtectedRoute roles={['inventory_manager', 'admin']}>
+                  <EditProductPage />
+                </ProtectedRoute>
+              }
+            />
             <Route path="po/draft" element={<PurchaseOrderDraftListPage />} />
             <Route path="po/list" element={<PurchaseOrderListPage />} />
             <Route path="vendors/list" element={<VendorListPage />} />

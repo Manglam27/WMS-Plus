@@ -1,8 +1,7 @@
-import InventoryManagerPage from './InventoryManagerPage'
+import { StockUpdateTab } from './InventoryManagerPage'
 
 function InventoryUpdateStockPage() {
-  // For now reuse the InventoryManagerPage, which focuses on stock update and product list.
-  return <InventoryManagerPage />
+  return <StockUpdateTab />
 }
 
 export default InventoryUpdateStockPage

@@ -9,29 +9,50 @@ body {
     Ubuntu, Cantarell, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f4f6fb;
+  background-color: #f4f6fb; /* Page Background */
+}
+
+.app-sidebar {
+  background-color: #1e1e2c; /* Primary 2 – sidebar background */
+}
+
+.app-sidebar-inner {
+  padding: 0.75rem 0.5rem 1.5rem;
 }
 
 .app-sidebar nav .nav-link {
   border-radius: 6px;
-  padding: 0.4rem 0.75rem;
-  color: #495057;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  padding: 0.55rem 0.9rem;
+  color: #e5e7eb;
+  font-size: 0.9rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid transparent;
+  margin-bottom: 4px;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .app-sidebar nav .nav-link:hover {
-  background-color: #e9edf7;
-  color: #1f4f8d;
+  background-color: rgba(242, 159, 103, 0.18); /* Primary 1 subtle */
+  border-color: rgba(242, 159, 103, 0.55);
+  color: #ffffff;
 }
 
 .app-sidebar nav .nav-link.active {
-  background-color: #1f4f8d;
+  background-color: #f29f67; /* Primary 1 */
   color: #ffffff;
 }
 
 .app-sidebar-section-title {
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #f9fafb;
+  opacity: 0.85;
+  padding: 0.5rem 0.75rem 0.25rem;
 }
 
 /* Hide number input spinners for a cleaner grid look */
@@ -237,7 +258,7 @@ input[type='number'].no-spin {
 }
 
 .product-list-table thead {
-  background: #2f4458;
+  background: #1e1e2c; /* Table header uses Primary 2 */
   color: white;
   font-size: 13px;
 }
@@ -256,11 +277,11 @@ input[type='number'].no-spin {
 }
 
 .product-list-table tbody tr:hover {
-  background: #f7f9fc;
+  background: #f5f7fa; /* Table Hover */
 }
 
 .product-list-status {
-  background: #2ecc71;
+  background: #34b1aa; /* Support 2 – active status */
   color: white;
   padding: 4px 10px;
   border-radius: 999px;
@@ -280,7 +301,7 @@ input[type='number'].no-spin {
 .product-list-actions {
   display: flex;
   gap: 10px;
-  color: #3498db;
+  color: #3b8ff3; /* Support 1 – links/icons */
   cursor: pointer;
   white-space: nowrap;
 }
@@ -289,14 +310,14 @@ input[type='number'].no-spin {
   border: none;
   background: transparent;
   padding: 2px;
-  color: #3498db;
+  color: #3b8ff3; /* Support 1 */
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
 .product-list-icon-btn:hover {
-  color: #1f4f8d;
+  color: #1e1e2c;
 }
 
 .product-list-footer {

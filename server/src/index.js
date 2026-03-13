@@ -14,9 +14,10 @@ const PORT = process.env.PORT || 5000
 app.use(cors())
 app.use(express.json())
 
-// Serve uploaded product images
+// Serve uploaded product images (direct and via /api for dev proxy)
 ensureDir(path.join(uploadsRoot(), 'products'))
 app.use('/uploads', express.static(uploadsRoot()))
+app.use('/api/uploads', express.static(uploadsRoot()))
 
 app.use('/api/auth', authRoutes)
 app.use('/api/users', userRoutes)

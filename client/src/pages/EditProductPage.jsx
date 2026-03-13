@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Badge, Button, Card, Col, Form, Row, Table } from 'react-bootstrap'
+import { Alert, Badge, Button, Card, Col, Form, Modal, Row, Table } from 'react-bootstrap'
 import { api } from '../api/api'
 
 const CATEGORY_OPTIONS = {
@@ -28,6 +28,8 @@ function EditProductPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [showBarcodeModal, setShowBarcodeModal] = useState(false)
+  const [barcodeUnit, setBarcodeUnit] = useState('Piece')
 
   useEffect(() => {
     let alive = true
@@ -59,23 +61,28 @@ function EditProductPage() {
           imageFileName: data.imageFileName || '',
         })
         setPackingRows(
-          (Array.isArray(data.packings) ? data.packings : []).map((p) => ({
-            enabled: p.enabled !== false,
-            isDefault: !!p.isDefault,
-            isFree: !!p.isFree,
-            unitType: p.unitType || 'Piece',
-            qty: p.qty || 1,
-            price: p.price ?? '',
-            barcode: p.barcode || '',
-            rack: p.rack || '',
-            section: p.section || '',
-            row: p.row || '',
-            boxNo: p.boxNo || '',
-            cost: p.cost ?? '',
-            whMin: p.whMin ?? '',
-            retailMin: p.retailMin ?? '',
-            base: p.base ?? '',
-          })),
+          (Array.isArray(data.packings) ? data.packings : [])
+            .filter((p) => p.enabled !== false)
+            .map((p) => ({
+              enabled: p.enabled !== false,
+              isDefault: !!p.isDefault,
+              isFree: !!p.isFree,
+              unitType: p.unitType || 'Piece',
+              qty: p.qty || 1,
+              price: p.price ?? '',
+              barcode: p.barcode || '',
+              // Preserve the original barcode so we can keep it read-only,
+              // while still allowing the user to type into newly added rows.
+              originalBarcode: p.barcode || '',
+              rack: p.rack || '',
+              section: p.section || '',
+              row: p.row || '',
+              boxNo: p.boxNo || '',
+              cost: p.cost ?? '',
+              whMin: p.whMin ?? '',
+              retailMin: p.retailMin ?? '',
+              base: p.base ?? '',
+            })),
         )
       })
       .catch((e) => setError(e.message || 'Failed to load product'))
@@ -177,7 +184,7 @@ function EditProductPage() {
   }, [basic?.category])
 
   const handleSubmit = (e) => {
-    e.preventDefault()
+    if (e && e.preventDefault) e.preventDefault()
     if (!basic) return
     setError('')
     setSuccess('')
@@ -199,7 +206,26 @@ function EditProductPage() {
       if (v === undefined || v === null) return
       formData.append(k, String(v))
     })
-    formData.append('packings', JSON.stringify(derivedPackings))
+    const syncedPackings = derivedPackings.filter((p) => p.enabled !== false)
+
+    // Frontend guard: do not allow duplicate barcodes inside the same product
+    const barcodesInProduct = syncedPackings
+      .map((p) => String(p.barcode || '').trim())
+      .filter((b) => b.length > 0)
+
+    const seen = new Set()
+    // If any barcode repeats within this product, block submit early
+    // (backend will still enforce this as a safety net).
+    for (const b of barcodesInProduct) {
+      if (seen.has(b)) {
+        setSaving(false)
+        setError('The same barcode cannot be used more than once in this product.')
+        return
+      }
+      seen.add(b)
+    }
+
+    formData.append('packings', JSON.stringify(syncedPackings))
     if (imageFile) formData.append('image', imageFile)
 
     fetch(`/api/products/${id}`, {
@@ -453,13 +479,10 @@ function EditProductPage() {
                   <Table hover size="sm" className="mb-0 packing-table">
                     <thead>
                       <tr>
-                        <th rowSpan={2}>Enable</th>
-                        <th rowSpan={2}>Set default</th>
-                        <th rowSpan={2}>Free?</th>
                         <th rowSpan={2}>Unit type</th>
                         <th rowSpan={2}>Qty</th>
                         <th colSpan={4}>Price</th>
-                        <th rowSpan={2}>Barcode</th>
+                        <th rowSpan={2}>Barcode(s)</th>
                       </tr>
                       <tr className="packing-sub-header">
                         <th>Cost</th>
@@ -469,35 +492,19 @@ function EditProductPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {derivedPackings.map((row, index) => {
-                        const disabled = !row.enabled
-                        const commonProps = {
-                          disabled,
-                        }
-                        return (
+                      {derivedPackings
+                        .map((row, index) => ({ row, index }))
+                        .filter(
+                          (item, idx, arr) =>
+                            arr.findIndex((x) => x.row.unitType === item.row.unitType) === idx,
+                        )
+                        .map(({ row, index }) => {
+                          const disabled = !row.enabled
+                          const commonProps = {
+                            disabled,
+                          }
+                          return (
                           <tr key={index} style={disabled ? { opacity: 0.5 } : undefined}>
-                            <td>
-                              <Form.Check
-                                type="checkbox"
-                                checked={row.enabled}
-                                onChange={handlePackingChange(index, 'enabled')}
-                              />
-                            </td>
-                            <td>
-                              <Form.Check
-                                type="radio"
-                                name="defaultPacking"
-                                checked={defaultIndex === index}
-                                onChange={() => handleSetDefault(index)}
-                              />
-                            </td>
-                            <td>
-                              <Form.Check
-                                type="checkbox"
-                                checked={row.isFree}
-                                onChange={handlePackingChange(index, 'isFree')}
-                              />
-                            </td>
                             <td>{row.unitType}</td>
                             <td>
                               <Form.Control
@@ -554,25 +561,47 @@ function EditProductPage() {
                               />
                             </td>
                             <td>
-                              <Form.Control
-                                className="packing-input"
-                                value={row.barcode}
-                                onChange={handlePackingChange(index, 'barcode')}
-                                placeholder="Scan"
-                                {...commonProps}
-                              />
+                              <Button
+                                variant="outline-secondary"
+                                size="sm"
+                                onClick={() => {
+                                  setBarcodeUnit(row.unitType)
+                                  setShowBarcodeModal(true)
+                                }}
+                              >
+                                Manage barcodes
+                              </Button>
                             </td>
                           </tr>
-                        )
-                      })}
+                          )
+                        })}
                     </tbody>
                   </Table>
                 </div>
               </Card.Body>
             </Card>
 
-            {error && <p className="text-danger small mt-2 mb-0">{error}</p>}
-            {success && <p className="text-success small mt-2 mb-0">{success}</p>}
+            {error && (
+              <Alert
+                variant="danger"
+                className="mt-3 d-flex align-items-start gap-2"
+                onClose={() => setError('')}
+                dismissible
+              >
+                <span style={{ fontSize: '1.25rem', lineHeight: 1 }}>✖</span>
+                <span>{error}</span>
+              </Alert>
+            )}
+            {success && (
+              <Alert
+                variant="success"
+                className="mt-3"
+                onClose={() => setSuccess('')}
+                dismissible
+              >
+                {success}
+              </Alert>
+            )}
 
             <div className="d-flex justify-content-end gap-2 mt-3">
               <Button type="submit" variant="primary" disabled={saving}>
@@ -628,6 +657,107 @@ function EditProductPage() {
           </Col>
         </Row>
       </Form>
+      <Modal
+        show={showBarcodeModal}
+        onHide={() => setShowBarcodeModal(false)}
+        size="lg"
+        centered
+      >
+        <Modal.Header closeButton>
+          <Modal.Title>
+            {basic.productName} ({basic.productId}) – {barcodeUnit}
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <div className="mb-2 small text-muted">
+            Existing barcodes cannot be changed. Use &quot;Add more&quot; to attach additional barcodes to this product.
+          </div>
+          <div className="packing-table-wrapper">
+            <Table hover size="sm" className="mb-0 packing-table">
+              <thead>
+                <tr>
+                  <th>Unit type</th>
+                  <th>Barcode number</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {packingRows
+                  .map((row, index) => ({ row, index }))
+                  .filter(({ row }) => row.unitType === barcodeUnit)
+                  .map(({ row, index }) => {
+                    const handleChangeDigits = (e) => {
+                      const digits = e.target.value.replace(/\D/g, '')
+                      handlePackingChange(index, 'barcode')({ target: { value: digits } })
+                    }
+                    const isExisting = !!row.originalBarcode
+                    return (
+                      <tr key={index}>
+                        <td>{row.unitType}</td>
+                        <td>
+                          <Form.Control
+                            className="packing-input"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="\d*"
+                            value={row.barcode}
+                            placeholder="Numbers only"
+                            onChange={handleChangeDigits}
+                            disabled={isExisting}
+                          />
+                        </td>
+                        <td />
+                      </tr>
+                    )
+                  })}
+              </tbody>
+            </Table>
+          </div>
+        </Modal.Body>
+        <Modal.Footer className="d-flex justify-content-between">
+          <Button
+            variant="link"
+            className="p-0"
+            onClick={() =>
+              setPackingRows((rows) => [
+                ...rows,
+                {
+                  enabled: true,
+                  isDefault: false,
+                  isFree: false,
+                  unitType: barcodeUnit || 'Piece',
+                  qty: 1,
+                  price: '',
+                  barcode: '',
+                  originalBarcode: '',
+                  rack: '',
+                  section: '',
+                  row: '',
+                  boxNo: '',
+                  cost: '',
+                  whMin: '',
+                  retailMin: '',
+                  base: '',
+                },
+              ])
+            }
+          >
+            Add more
+          </Button>
+          <div className="d-flex gap-2">
+            <Button
+              variant="primary"
+              onClick={() => handleSubmit()}
+              disabled={saving}
+            >
+              {saving ? 'Saving...' : 'Update'}
+            </Button>
+            <Button variant="danger" onClick={() => setShowBarcodeModal(false)}>
+              Close
+            </Button>
+          </div>
+        </Modal.Footer>
+      </Modal>
     </div>
   )
 }

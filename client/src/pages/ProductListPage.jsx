@@ -55,6 +55,31 @@ function formatExpiry(dateValue) {
   return d.toLocaleDateString()
 }
 
+function formatDefaultUnitStock(product) {
+  const pieces = typeof product.currentStock === 'number' ? product.currentStock : 0
+  if (!pieces || !Array.isArray(product.packings) || product.packings.length === 0) {
+    return ''
+  }
+
+  const defaultPacking =
+    product.packings.find((p) => p.isDefault && p.enabled !== false) ||
+    product.packings.find((p) => p.unitType === 'Piece' && p.enabled !== false) ||
+    product.packings.find((p) => p.enabled !== false)
+
+  if (!defaultPacking || !defaultPacking.unitType || !defaultPacking.qty) return ''
+
+  const perUnit = Number(defaultPacking.qty) || 0
+  if (!perUnit) return ''
+
+  const units = pieces / perUnit
+  const unitLabel = defaultPacking.unitType
+
+  if (!Number.isFinite(units) || units <= 0) return ''
+
+  const displayUnits = Number.isInteger(units) ? units : units.toFixed(2)
+  return `${displayUnits} ${unitLabel}`
+}
+
 function ProductListPage() {
   const [filters, setFilters] = useState({
     category: 'all',
@@ -64,7 +89,7 @@ function ProductListPage() {
     productId: '',
     productName: '',
     barcode: '',
-    status: 'Active',
+    status: 'all',
     vendor: 'all',
     fromExpiryDate: '',
     toExpiryDate: '',
@@ -96,8 +121,8 @@ function ProductListPage() {
     Object.entries(filters).forEach(([k, v]) => {
       if (v === '' || v == null) return
       if (v === 'all') return
-      // status/vendor are not stored yet; keep UI but don't send for now
-      if (k === 'status' || k === 'vendor') return
+      // vendor is not stored yet; keep UI but don't send for now
+      if (k === 'vendor') return
       params.set(k, String(v))
     })
 
@@ -133,7 +158,7 @@ function ProductListPage() {
     setFilters((f) => ({ ...f, [field]: e.target.value }))
   }
 
-  const canLoadMore = pageSize !== 'all' && items.length < total
+  const canLoadMore = false
 
   return (
     <div className="product-list-page">
@@ -175,6 +200,7 @@ function ProductListPage() {
         <input placeholder="Barcode" value={filters.barcode} onChange={handleChange('barcode')} />
 
         <select value={filters.status} onChange={handleChange('status')}>
+          <option value="all">All Status</option>
           <option value="Active">Active</option>
           <option value="Inactive">Inactive</option>
         </select>
@@ -225,7 +251,12 @@ function ProductListPage() {
                 <tr key={p._id}>
                   <td>
                     <div className="product-list-actions" title="Edit / Print">
-                      <IconButton title="Edit" onClick={() => {}}>
+                      <IconButton
+                        title="Edit"
+                        onClick={() => {
+                          window.location.href = `/products/edit/${p._id}`
+                        }}
+                      >
                         <EditIcon />
                       </IconButton>
                       <IconButton
@@ -247,7 +278,12 @@ function ProductListPage() {
                   <td>{p.subcategory}</td>
                   <td>{p.productName}</td>
                   <td>{p.brand}</td>
-                  <td>{0}</td>
+                  <td>
+                    <div>{typeof p.currentStock === 'number' ? p.currentStock : 0}</div>
+                    {formatDefaultUnitStock(p) && (
+                      <div className="text-muted small">{formatDefaultUnitStock(p)}</div>
+                    )}
+                  </td>
                   <td>{p.reorderMark ?? '-'}</td>
                   <td>
                     <img
@@ -255,13 +291,15 @@ function ProductListPage() {
                       alt=""
                       src={
                         p.imageFileName
-                          ? `/uploads/products/${p.imageFileName}`
+                          ? `/api/uploads/products/${p.imageFileName}`
                           : "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='35' height='35'%3E%3Crect width='35' height='35' fill='%23e5e7eb'/%3E%3C/svg%3E"
                       }
                     />
                   </td>
                   <td>
-                    <span className="product-list-status">Active</span>
+                    <span className="product-list-status" style={{ background: p.isActive === false ? '#e5e7eb' : '#2ecc71', color: p.isActive === false ? '#374151' : '#fff' }}>
+                      {p.isActive === false ? 'Inactive' : 'Active'}
+                    </span>
                   </td>
                   <td>{Number(p.commissionPercent || 0).toFixed(2)}%</td>
                   <td>{formatExpiry(p.expiryDate)}</td>
@@ -284,22 +322,20 @@ function ProductListPage() {
           Showing <strong>{items.length}</strong> of <strong>{total}</strong>
         </div>
         <div className="d-flex align-items-center gap-2">
-          <span className="small text-muted">Load:</span>
-          <select value={pageSize} onChange={(e) => { setItems([]); setOffset(0); setPageSize(e.target.value) }}>
+          <span className="small text-muted">Rows per page:</span>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setItems([])
+              setOffset(0)
+              setPageSize(e.target.value)
+            }}
+          >
             <option value="10">10</option>
             <option value="50">50</option>
             <option value="100">100</option>
             <option value="all">All</option>
           </select>
-          <button
-            className="product-list-search-btn"
-            type="button"
-            onClick={() => fetchPage({ reset: false })}
-            disabled={!canLoadMore || loading}
-            title={pageSize === 'all' ? 'All selected' : 'Load more'}
-          >
-            {loading ? 'Loading...' : 'Load more'}
-          </button>
         </div>
       </div>
     </div>

@@ -5,6 +5,8 @@ import connectDB from './config/db.js'
 import authRoutes from './routes/auth.js'
 import userRoutes from './routes/users.js'
 import productRoutes from './routes/products.js'
+import vendorRoutes from './routes/vendors.js'
+import poRoutes from './routes/po.js'
 import User from './models/User.js'
 import { ensureDir, uploadsRoot } from './uploads.js'
 
@@ -22,6 +24,10 @@ app.use('/api/uploads', express.static(uploadsRoot()))
 app.use('/api/auth', authRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api/products', productRoutes)
+app.use('/api/vendors', vendorRoutes)
+app.use('/api/po', poRoutes)
+
+ensureDir(path.join(uploadsRoot(), 'po'))
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'WMS-Plus API is running' })

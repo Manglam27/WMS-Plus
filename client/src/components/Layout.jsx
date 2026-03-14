@@ -154,6 +154,46 @@ function Layout() {
                 </>
               )}
 
+              {role === 'inventory_receiver' && (
+                <>
+                  <div className="mb-3">
+                    <div className="app-sidebar-section-title">Inventory</div>
+                    <Nav className="flex-column">
+                      <Nav.Link as={NavLink} to="/inventory/update-stock">
+                        <span>Update stock</span>
+                        <span>›</span>
+                      </Nav.Link>
+                    </Nav>
+                  </div>
+                  <div className="mb-3">
+                    <div className="app-sidebar-section-title">Purchase Order</div>
+                    <Nav className="flex-column">
+                      <Nav.Link as={NavLink} to="/po/generate">
+                        <span>Generate PO</span>
+                        <span>›</span>
+                      </Nav.Link>
+                      <Nav.Link as={NavLink} to="/po/list">
+                        <span>PO List</span>
+                        <span>›</span>
+                      </Nav.Link>
+                    </Nav>
+                  </div>
+                  <div className="mb-3">
+                    <div className="app-sidebar-section-title">Vendor</div>
+                    <Nav className="flex-column">
+                      <Nav.Link as={NavLink} to="/vendors/credit-memo">
+                        <span>Vendor credit memo</span>
+                        <span>›</span>
+                      </Nav.Link>
+                      <Nav.Link as={NavLink} to="/vendors/credit-memo/list">
+                        <span>Vendor credit memo list</span>
+                        <span>›</span>
+                      </Nav.Link>
+                    </Nav>
+                  </div>
+                </>
+              )}
+
               {role === 'accounts' && (
                 <div className="mb-3">
                   <div className="app-sidebar-section-title">Accounts</div>

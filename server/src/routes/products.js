@@ -2,6 +2,7 @@ import express from 'express'
 import multer from 'multer'
 import path from 'path'
 import Product from '../models/Product.js'
+import User from '../models/User.js'
 import { protect, requireRole } from '../middleware/auth.js'
 import { ensureDir, uploadsRoot } from '../uploads.js'
 
@@ -42,7 +43,7 @@ async function generateUniqueBarcode() {
 }
 
 // GET /api/products - list products (filters + pagination)
-router.get('/', protect, requireRole('admin', 'inventory_manager'), async (req, res) => {
+router.get('/', protect, requireRole('admin', 'inventory_manager', 'inventory_receiver'), async (req, res) => {
   try {
     const {
       limit = '10',
@@ -96,7 +97,7 @@ router.get('/', protect, requireRole('admin', 'inventory_manager'), async (req, 
 })
 
 // GET /api/products/:id - get single product
-router.get('/:id', protect, requireRole('admin', 'inventory_manager'), async (req, res) => {
+router.get('/:id', protect, requireRole('admin', 'inventory_manager', 'inventory_receiver'), async (req, res) => {
   try {
     const product = await Product.findById(req.params.id)
     if (!product) return res.status(404).json({ message: 'Product not found' })
@@ -110,18 +111,30 @@ router.get('/:id', protect, requireRole('admin', 'inventory_manager'), async (re
 router.post(
   '/:id/stock-adjust',
   protect,
-  requireRole('admin', 'inventory_manager'),
+  requireRole('admin', 'inventory_manager', 'inventory_receiver'),
   async (req, res) => {
     try {
-      const { newStockPieces, defaultUnitType, defaultUnitQty, remark, referenceId } = req.body || {}
+      const { newStockPieces, defaultUnitType, defaultUnitQty, remark, referenceId, securityCode } = req.body || {}
+
+      if (!securityCode || typeof securityCode !== 'string') {
+        return res.status(403).json({ message: 'Access denied' })
+      }
+      const userWithPassword = await User.findById(req.user._id).select('+password')
+      if (!userWithPassword) {
+        return res.status(500).json({ message: 'Server error' })
+      }
+      const passwordValid = await userWithPassword.comparePassword(securityCode.trim())
+      if (!passwordValid) {
+        return res.status(403).json({ message: 'Access denied' })
+      }
 
       const requested = Number(newStockPieces)
       if (!Number.isFinite(requested) || requested < 0) {
         return res.status(400).json({ message: 'Invalid stock quantity' })
       }
 
-      if (!remark || String(remark).trim().length < 3) {
-        return res.status(400).json({ message: 'Remark is required for stock updates' })
+      if (!remark || String(remark).trim().length < 10) {
+        return res.status(400).json({ message: 'Remark must be at least 10 characters' })
       }
 
       const product = await Product.findById(req.params.id)

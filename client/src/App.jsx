@@ -13,7 +13,13 @@ import ProductLabelPrintPage from './pages/ProductLabelPrintPage'
 import EditProductPage from './pages/EditProductPage'
 import PurchaseOrderDraftListPage from './pages/PurchaseOrderDraftListPage'
 import PurchaseOrderListPage from './pages/PurchaseOrderListPage'
+import EditPOPage from './pages/EditPOPage'
+import GeneratePOPage from './pages/GeneratePOPage'
+import VendorCreditMemoPage from './pages/VendorCreditMemoPage'
+import VendorCreditMemoListPage from './pages/VendorCreditMemoListPage'
 import VendorListPage from './pages/VendorListPage'
+import NewVendorPage from './pages/NewVendorPage'
+import VendorDetailsPage from './pages/VendorDetailsPage'
 import VendorPaymentPage from './pages/VendorPaymentPage'
 import VendorPaymentHistoryPage from './pages/VendorPaymentHistoryPage'
 import ReportsOnhandPage from './pages/ReportsOnhandPage'
@@ -63,8 +69,14 @@ function App() {
               }
             />
             <Route path="po/draft" element={<PurchaseOrderDraftListPage />} />
+            <Route path="po/generate" element={<GeneratePOPage />} />
             <Route path="po/list" element={<PurchaseOrderListPage />} />
+            <Route path="po/edit/:id" element={<EditPOPage />} />
+            <Route path="vendors/credit-memo" element={<VendorCreditMemoPage />} />
+            <Route path="vendors/credit-memo/list" element={<VendorCreditMemoListPage />} />
             <Route path="vendors/list" element={<VendorListPage />} />
+            <Route path="vendors/new" element={<NewVendorPage />} />
+            <Route path="vendors/details/:id" element={<VendorDetailsPage />} />
             <Route path="vendors/payment" element={<VendorPaymentPage />} />
             <Route path="vendors/payment-history" element={<VendorPaymentHistoryPage />} />
             <Route path="reports/onhand" element={<ReportsOnhandPage />} />

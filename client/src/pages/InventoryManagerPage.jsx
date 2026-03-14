@@ -1,14 +1,31 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Card, Nav, Form, Button, Table, Badge, Row, Col, ProgressBar } from 'react-bootstrap'
+import { Card, Nav, Form, Button, Table, Badge, Row, Col, ProgressBar, Modal } from 'react-bootstrap'
 import { api } from '../api/api'
+import { useAuth } from '../context/AuthContext'
+
+const ROLE_LABELS = {
+  admin: 'Admin',
+  accounts: 'Accounts',
+  order_manager: 'Order Manager',
+  inventory_manager: 'Inventory Manager',
+  inventory_receiver: 'Inventory Receiver',
+  sales_manager: 'Sales Manager',
+  scanner_packer: 'Scanner / Packer',
+  picker: 'Picker',
+  sales_person: 'Sales Person',
+  driver: 'Driver',
+}
 
 export function StockUpdateTab() {
+  const { user } = useAuth()
   const [form, setForm] = useState({
     barcode: '',
     productSearch: '',
     selectedProduct: '',
     remark: '',
   })
+  const [showSecurityModal, setShowSecurityModal] = useState(false)
+  const [securityCode, setSecurityCode] = useState('')
 
   const [unitRows, setUnitRows] = useState([
     { unitType: 'Piece', qtyPerUnit: 1, qty: '' },
@@ -197,9 +214,20 @@ export function StockUpdateTab() {
       return
     }
 
-    if (!form.remark || form.remark.trim().length < 3) {
+    if (!form.remark || form.remark.trim().length < 10) {
       // eslint-disable-next-line no-alert
-      window.alert('Please enter a remark for this stock update.')
+      window.alert('Remark must be at least 10 characters.')
+      return
+    }
+
+    setShowSecurityModal(true)
+  }
+
+  const handleSecurityConfirm = async () => {
+    if (!selectedProduct) return
+    const code = securityCode.trim()
+    if (!code) {
+      window.alert('Please enter the security code.')
       return
     }
 
@@ -216,30 +244,31 @@ export function StockUpdateTab() {
           defaultUnitType: unitRows[0]?.unitType || 'Piece',
           defaultUnitQty: unitRows[0]?.qtyPerUnit || 1,
           remark: form.remark,
+          securityCode: code,
         }),
       })
 
       const data = await res.json().catch(() => ({}))
+      setShowSecurityModal(false)
+      setSecurityCode('')
+
       if (!res.ok) {
+        if (res.status === 403 && data.message === 'Access denied') {
+          window.alert('Access denied.')
+          return
+        }
         throw new Error(data.message || 'Failed to update stock')
       }
 
+      const updatedId = data._id != null ? String(data._id) : null
       setProducts((prev) =>
-        prev.map((p) => (p._id === data._id ? data : p)),
+        prev.map((p) => (updatedId && String(p._id) === updatedId ? { ...p, ...data, stockHistory: data.stockHistory ?? p.stockHistory, currentStock: data.currentStock } : p)),
       )
-
-      setForm((prev) => ({
-        ...prev,
-        remark: '',
-      }))
+      setForm((prev) => ({ ...prev, remark: '' }))
       setUnitRows((rows) =>
-        rows.map((r) => ({
-          ...r,
-          qty: '',
-        })),
+        rows.map((r) => ({ ...r, qty: '' })),
       )
     } catch (err) {
-      // eslint-disable-next-line no-alert
       window.alert(err.message || 'Failed to update stock')
     }
   }
@@ -435,6 +464,37 @@ export function StockUpdateTab() {
         </Card.Footer>
       </Card>
 
+      <Modal show={showSecurityModal} onHide={() => { setShowSecurityModal(false); setSecurityCode('') }} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Enter security code</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p className="mb-2 small text-muted">User type: <strong>{ROLE_LABELS[user?.role] || user?.role || 'User'}</strong></p>
+          <Form.Group>
+            <Form.Label className="small">Security code</Form.Label>
+            <Form.Control
+              type="password"
+              placeholder="Enter your password"
+              value={securityCode}
+              onChange={(e) => setSecurityCode(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSecurityConfirm())}
+            />
+          </Form.Group>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" size="sm" onClick={() => { setShowSecurityModal(false); setSecurityCode('') }}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            style={{ backgroundColor: '#F29F67', borderColor: '#F29F67' }}
+            onClick={handleSecurityConfirm}
+          >
+            Confirm
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
       <Card>
         <Card.Header>
           <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -598,7 +658,7 @@ function InventoryDashboard() {
     setLoading(true)
     setError('')
     api
-      .get('/api/products?limit=all')
+      .get('/api/products?limit=all&status=Active')
       .then(async (res) => {
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data.message || 'Failed to load inventory overview')

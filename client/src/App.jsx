@@ -12,6 +12,7 @@ import NewProductPage from './pages/NewProductPage'
 import ProductLabelPrintPage from './pages/ProductLabelPrintPage'
 import EditProductPage from './pages/EditProductPage'
 import PurchaseOrderDraftListPage from './pages/PurchaseOrderDraftListPage'
+import PurchaseOrderReceivedListPage from './pages/PurchaseOrderReceivedListPage'
 import PurchaseOrderListPage from './pages/PurchaseOrderListPage'
 import EditPOPage from './pages/EditPOPage'
 import GeneratePOPage from './pages/GeneratePOPage'
@@ -68,7 +69,22 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            <Route path="po/draft" element={<PurchaseOrderDraftListPage />} />
+            <Route
+              path="po/draft"
+              element={
+                <ProtectedRoute roles={['inventory_manager', 'admin']}>
+                  <PurchaseOrderDraftListPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="po/received"
+              element={
+                <ProtectedRoute roles={['inventory_manager', 'admin']}>
+                  <PurchaseOrderReceivedListPage />
+                </ProtectedRoute>
+              }
+            />
             <Route path="po/generate" element={<GeneratePOPage />} />
             <Route path="po/list" element={<PurchaseOrderListPage />} />
             <Route path="po/edit/:id" element={<EditPOPage />} />

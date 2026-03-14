@@ -113,8 +113,8 @@ function Layout() {
                         <span>Draft PO list</span>
                         <span>›</span>
                       </Nav.Link>
-                      <Nav.Link as={NavLink} to="/po/list">
-                        <span>PO list</span>
+                      <Nav.Link as={NavLink} to="/po/received">
+                        <span>PO list (Received)</span>
                         <span>›</span>
                       </Nav.Link>
                     </Nav>

@@ -554,7 +554,7 @@ export function StockUpdateTab() {
               </thead>
               <tbody>
                 {selectedProduct?.stockHistory?.length ? (
-                  selectedProduct.stockHistory.map((entry, idx) => {
+                  [...selectedProduct.stockHistory].reverse().map((entry, idx) => {
                     const date = entry.at ? new Date(entry.at) : null
                     const dateStr = date
                       ? `${date.toLocaleDateString()} ${date.toLocaleTimeString([], {

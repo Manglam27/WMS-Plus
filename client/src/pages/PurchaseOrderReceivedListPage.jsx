@@ -9,20 +9,13 @@ function formatDate(dateValue) {
   return d.toLocaleDateString()
 }
 
-const DRAFT_STATUS_MAP = {
-  generated: 'New',
-  revert: 'Revert',
-  verified: 'Verified',
-}
-
-function PurchaseOrderDraftListPage() {
+function PurchaseOrderReceivedListPage() {
   const navigate = useNavigate()
   const [vendors, setVendors] = useState([])
   const [filters, setFilters] = useState({
     vendor: '',
     vendorInvoiceNo: '',
     poNumber: '',
-    status: '',
     fromDate: '',
     toDate: '',
   })
@@ -48,10 +41,9 @@ function PurchaseOrderDraftListPage() {
     if (filters.vendor) params.set('vendor', filters.vendor)
     if (filters.vendorInvoiceNo.trim()) params.set('vendorInvoiceNo', filters.vendorInvoiceNo.trim())
     if (filters.poNumber.trim()) params.set('poNumber', filters.poNumber.trim())
-    if (filters.status) params.set('status', filters.status)
     if (filters.fromDate) params.set('fromDate', filters.fromDate)
     if (filters.toDate) params.set('toDate', filters.toDate)
-    return `/api/po/draft?${params.toString()}`
+    return `/api/po/received?${params.toString()}`
   }
 
   const fetchList = async () => {
@@ -60,11 +52,11 @@ function PurchaseOrderDraftListPage() {
     try {
       const res = await api.get(buildQuery())
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.message || 'Failed to load draft POs')
+      if (!res.ok) throw new Error(data.message || 'Failed to load received POs')
       setItems(Array.isArray(data.items) ? data.items : [])
       setTotal(Number(data.total) || 0)
     } catch (e) {
-      setError(e.message || 'Failed to load draft POs')
+      setError(e.message || 'Failed to load received POs')
     } finally {
       setLoading(false)
     }
@@ -79,38 +71,18 @@ function PurchaseOrderDraftListPage() {
     setFilters((f) => ({ ...f, [field]: e.target.value }))
   }
 
-  const statusLabel = (status) => DRAFT_STATUS_MAP[status] || status || '-'
-  const statusBadgeClass = (status) => {
-    if (status === 'verified') return 'po-status-badge po-status-badge--verified'
-    if (status === 'revert') return 'po-status-badge po-status-badge--revert'
-    return 'po-status-badge po-status-badge--new'
-  }
-
-  const displayAmount = (po) => {
-    if (po.status === 'verified' && po.totalAmount != null) return Number(po.totalAmount).toFixed(3)
-    return '0.000'
-  }
-
-  const totalAmountSum = items.reduce((sum, po) => {
-    if (po.status === 'verified' && po.totalAmount != null) return sum + Number(po.totalAmount)
-    return sum
-  }, 0)
+  const totalAmountSum = items.reduce((sum, po) => sum + (Number(po.totalAmount) || 0), 0)
 
   return (
     <div className="product-list-page po-list-page draft-po-list-page">
       <div className="product-list-header">
-        <div className="product-list-title">Draft PO List</div>
+        <div className="product-list-title">Received Invoices (PO List)</div>
       </div>
 
       <div className="product-list-filters draft-po-filters">
         <div className="draft-po-filter-group">
           <label className="draft-po-filter-label">Vendor</label>
-          <select
-            value={filters.vendor}
-            onChange={handleChange('vendor')}
-            className="draft-po-filter-input"
-            aria-label="Vendor"
-          >
+          <select value={filters.vendor} onChange={handleChange('vendor')} className="draft-po-filter-input" aria-label="Vendor">
             <option value="">All Vendors</option>
             {vendors.map((v) => (
               <option key={v._id} value={v._id}>{v.vendorName} ({v.vendorId})</option>
@@ -119,65 +91,22 @@ function PurchaseOrderDraftListPage() {
         </div>
         <div className="draft-po-filter-group">
           <label className="draft-po-filter-label">Vendor Invoice No.</label>
-          <input
-            type="text"
-            placeholder="Vendor Invoice No."
-            value={filters.vendorInvoiceNo}
-            onChange={handleChange('vendorInvoiceNo')}
-            className="draft-po-filter-input"
-          />
+          <input type="text" placeholder="Vendor Invoice No." value={filters.vendorInvoiceNo} onChange={handleChange('vendorInvoiceNo')} className="draft-po-filter-input" />
         </div>
         <div className="draft-po-filter-group">
           <label className="draft-po-filter-label">PO Number</label>
-          <input
-            type="text"
-            placeholder="PO Number"
-            value={filters.poNumber}
-            onChange={handleChange('poNumber')}
-            className="draft-po-filter-input"
-          />
-        </div>
-        <div className="draft-po-filter-group">
-          <label className="draft-po-filter-label">Status</label>
-          <select
-            value={filters.status}
-            onChange={handleChange('status')}
-            className="draft-po-filter-input"
-            aria-label="Status"
-          >
-            <option value="">All</option>
-            <option value="new">New</option>
-            <option value="revert">Revert</option>
-            <option value="verified">Verified</option>
-          </select>
+          <input type="text" placeholder="PO Number" value={filters.poNumber} onChange={handleChange('poNumber')} className="draft-po-filter-input" />
         </div>
         <div className="draft-po-filter-group">
           <label className="draft-po-filter-label">From Invoice Date</label>
-          <input
-            type="date"
-            value={filters.fromDate}
-            onChange={handleChange('fromDate')}
-            className="draft-po-filter-input"
-            title="From Invoice Date"
-          />
+          <input type="date" value={filters.fromDate} onChange={handleChange('fromDate')} className="draft-po-filter-input" title="From Invoice Date" />
         </div>
         <div className="draft-po-filter-group">
           <label className="draft-po-filter-label">To Invoice Date</label>
-          <input
-            type="date"
-            value={filters.toDate}
-            onChange={handleChange('toDate')}
-            className="draft-po-filter-input"
-            title="To Invoice Date"
-          />
+          <input type="date" value={filters.toDate} onChange={handleChange('toDate')} className="draft-po-filter-input" title="To Invoice Date" />
         </div>
         <div className="draft-po-filter-group draft-po-filter-actions">
-          <button
-            type="button"
-            className="product-list-search-btn"
-            onClick={() => fetchList()}
-            disabled={loading}
-          >
+          <button type="button" className="product-list-search-btn" onClick={() => fetchList()} disabled={loading}>
             {loading ? 'Searching...' : 'Search'}
           </button>
         </div>
@@ -194,6 +123,7 @@ function PurchaseOrderDraftListPage() {
                 <th>Status</th>
                 <th>Vendor Invoice No</th>
                 <th>Invoice Date</th>
+                <th>Received Date</th>
                 <th>Vendor Name</th>
                 <th>PO Number</th>
                 <th>Products</th>
@@ -206,14 +136,9 @@ function PurchaseOrderDraftListPage() {
                 <tr key={po._id}>
                   <td>
                     <div className="draft-po-actions">
-                      <button
-                        type="button"
-                        className="product-list-icon-btn"
-                        title="Edit"
-                        onClick={() => navigate(`/po/edit/${po._id}`)}
-                      >
+                      <button type="button" className="product-list-icon-btn" title="View" onClick={() => navigate(`/po/edit/${po._id}`)}>
                         <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
-                          <path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm2.92 2.83H5v-.92l9.06-9.06.92.92L5.92 20.08zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z" />
+                          <path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
                         </svg>
                       </button>
                       <button type="button" className="product-list-icon-btn" title="Print (coming soon)" disabled>
@@ -229,21 +154,22 @@ function PurchaseOrderDraftListPage() {
                     </div>
                   </td>
                   <td>
-                    <span className={statusBadgeClass(po.status)}>{statusLabel(po.status)}</span>
+                    <span className="po-status-badge po-status-badge--received">Received</span>
                   </td>
                   <td>{po.vendorInvoiceNo || '-'}</td>
                   <td>{formatDate(po.date)}</td>
+                  <td>{formatDate(po.receivedAt)}</td>
                   <td>{po.vendor ? (po.vendor.vendorName || po.vendor.vendorId) : '-'}</td>
                   <td>{po.poNumber || '-'}</td>
                   <td>{Array.isArray(po.lineItems) ? po.lineItems.length : 0}</td>
-                  <td>{displayAmount(po)}</td>
+                  <td>{(Number(po.totalAmount) || 0).toFixed(2)}</td>
                   <td>{(po.remark || '').slice(0, 40)}{(po.remark && po.remark.length > 40) ? '…' : ''}</td>
                 </tr>
               ))}
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="text-center text-muted">
-                    {loading ? 'Loading...' : 'No draft POs found'}
+                  <td colSpan={10} className="text-center text-muted">
+                    {loading ? 'Loading...' : 'No received invoices found'}
                   </td>
                 </tr>
               )}
@@ -251,7 +177,7 @@ function PurchaseOrderDraftListPage() {
             <tfoot>
               <tr>
                 <td className="fw-semibold">Total</td>
-                <td colSpan={6} />
+                <td colSpan={7} />
                 <td className="fw-semibold">{totalAmountSum.toFixed(2)}</td>
                 <td />
               </tr>
@@ -263,4 +189,4 @@ function PurchaseOrderDraftListPage() {
   )
 }
 
-export default PurchaseOrderDraftListPage
+export default PurchaseOrderReceivedListPage

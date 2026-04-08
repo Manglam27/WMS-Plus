@@ -1,29 +1,13 @@
 import { useState, useEffect } from 'react'
-import { Card, Form, Button, Table, Alert } from 'react-bootstrap'
+import { Card, Alert } from 'react-bootstrap'
 import { api } from '../api/api'
 
-const ROLES = [
-  { value: 'admin', label: 'Admin' },
-  { value: 'accounts', label: 'Accounts' },
-  { value: 'order_manager', label: 'Order Manager' },
-  { value: 'inventory_manager', label: 'Inventory Manager' },
-  { value: 'inventory_receiver', label: 'Inventory Receiver' },
-  { value: 'sales_manager', label: 'Sales Manager' },
-  { value: 'scanner_packer', label: 'Scanner / Packer' },
-  { value: 'picker', label: 'Picker' },
-  { value: 'sales_person', label: 'Sales Person' },
-  { value: 'driver', label: 'Driver' },
-]
-
 function AdminPage() {
-  const [users, setUsers] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState({ totalUsers: 0, activeUsers: 0, inactiveUsers: 0 })
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
-  const [form, setForm] = useState({ name: '', username: '', password: '', role: 'accounts' })
 
   useEffect(() => {
-    loadUsers()
+    loadStats()
   }, [])
 
   const safeJson = async (res) => {
@@ -35,130 +19,51 @@ function AdminPage() {
     }
   }
 
-  const loadUsers = async () => {
+  const loadStats = async () => {
     try {
-      const res = await api.get('/api/users')
-      if (res.ok) {
-        const data = await safeJson(res)
-        setUsers(Array.isArray(data) ? data : [])
-      }
-    } catch (err) {
-      setError('Failed to load users')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setError('')
-    setSuccess('')
-    try {
-      const res = await api.post('/api/users', form)
+      const res = await api.get('/api/users/stats')
       const data = await safeJson(res)
-      if (!res.ok) throw new Error(data.message || 'Failed to create user')
-      setSuccess('User created successfully')
-      setForm({ name: '', username: '', password: '', role: 'accounts' })
-      loadUsers()
-    } catch (err) {
-      setError(err.message)
+      if (!res.ok) throw new Error(data.message || 'Failed to load user stats')
+      setStats({
+        totalUsers: Number(data.totalUsers) || 0,
+        activeUsers: Number(data.activeUsers) || 0,
+        inactiveUsers: Number(data.inactiveUsers) || 0,
+      })
+    } catch {
+      // Keep dashboard usable even when stats fail
     }
   }
 
   return (
     <>
-      <h2 className="mb-4">User Management</h2>
-
-      <Card className="mb-4">
-        <Card.Header>Create New User</Card.Header>
-        <Card.Body>
-          {error && <Alert variant="danger" onClose={() => setError('')} dismissible>{error}</Alert>}
-          {success && <Alert variant="success" onClose={() => setSuccess('')} dismissible>{success}</Alert>}
-          <Form onSubmit={handleSubmit}>
-            <div className="row g-3">
-              <div className="col-md-3">
-                <Form.Group>
-                  <Form.Label>Name</Form.Label>
-                  <Form.Control
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="Full name"
-                    required
-                  />
-                </Form.Group>
-              </div>
-              <div className="col-md-3">
-                <Form.Group>
-                  <Form.Label>Username (User ID)</Form.Label>
-                  <Form.Control
-                    value={form.username}
-                    onChange={(e) => setForm({ ...form, username: e.target.value })}
-                    placeholder="Login ID"
-                    required
-                  />
-                </Form.Group>
-              </div>
-              <div className="col-md-2">
-                <Form.Group>
-                  <Form.Label>Password</Form.Label>
-                  <Form.Control
-                    type="password"
-                    value={form.password}
-                    onChange={(e) => setForm({ ...form, password: e.target.value })}
-                    placeholder="Min 6 chars"
-                    required
-                    minLength={6}
-                  />
-                </Form.Group>
-              </div>
-              <div className="col-md-2">
-                <Form.Group>
-                  <Form.Label>Role</Form.Label>
-                  <Form.Select
-                    value={form.role}
-                    onChange={(e) => setForm({ ...form, role: e.target.value })}
-                  >
-                    {ROLES.map((r) => (
-                      <option key={r.value} value={r.value}>{r.label}</option>
-                    ))}
-                  </Form.Select>
-                </Form.Group>
-              </div>
-              <div className="col-md-2 d-flex align-items-end">
-                <Button type="submit" variant="primary">Create User</Button>
-              </div>
-            </div>
-          </Form>
-        </Card.Body>
-      </Card>
-
-      <Card>
-        <Card.Header>All Users</Card.Header>
-        <Card.Body>
-          {loading ? (
-            <p>Loading...</p>
-          ) : (
-            <Table striped bordered hover>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Username</th>
-                  <th>Role</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u._id}>
-                    <td>{u.name}</td>
-                    <td>{u.username}</td>
-                    <td>{ROLES.find((r) => r.value === u.role)?.label || u.role}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          )}
-        </Card.Body>
-      </Card>
+      <h2 className="mb-4">Administration</h2>
+      {error && <Alert variant="danger" onClose={() => setError('')} dismissible>{error}</Alert>}
+      <div className="row g-3">
+        <div className="col-md-4">
+          <Card className="h-100">
+            <Card.Body>
+              <div className="text-muted small">Total Users</div>
+              <div className="fs-3 fw-semibold">{stats.totalUsers}</div>
+            </Card.Body>
+          </Card>
+        </div>
+        <div className="col-md-4">
+          <Card className="h-100">
+            <Card.Body>
+              <div className="text-muted small">Active Users</div>
+              <div className="fs-3 fw-semibold text-success">{stats.activeUsers}</div>
+            </Card.Body>
+          </Card>
+        </div>
+        <div className="col-md-4">
+          <Card className="h-100">
+            <Card.Body>
+              <div className="text-muted small">Inactive Users</div>
+              <div className="fs-3 fw-semibold text-secondary">{stats.inactiveUsers}</div>
+            </Card.Body>
+          </Card>
+        </div>
+      </div>
     </>
   )
 }

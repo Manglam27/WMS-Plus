@@ -36,6 +36,10 @@ const userSchema = new mongoose.Schema({
       'driver',
     ],
   },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
 })
 
 userSchema.pre('save', async function (next) {

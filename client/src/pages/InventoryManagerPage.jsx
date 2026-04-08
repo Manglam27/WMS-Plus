@@ -869,26 +869,9 @@ function InventoryDashboard() {
 }
 
 function InventoryManagerPage() {
-  const [active, setActive] = useState('stock')
-
   return (
     <>
       <InventoryDashboard />
-      <Nav variant="tabs" className="mb-4">
-        <Nav.Item>
-          <Nav.Link active={active === 'stock'} onClick={() => setActive('stock')}>
-            Stock Update
-          </Nav.Link>
-        </Nav.Item>
-        <Nav.Item>
-          <Nav.Link active={active === 'products'} onClick={() => setActive('products')}>
-            Product List
-          </Nav.Link>
-        </Nav.Item>
-      </Nav>
-
-      {active === 'stock' && <StockUpdateTab />}
-      {active === 'products' && <ProductListTab />}
     </>
   )
 }

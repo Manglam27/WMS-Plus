@@ -210,12 +210,82 @@ function Layout() {
                 <div className="mb-3">
                   <div className="app-sidebar-section-title">Administration</div>
                   <Nav className="flex-column">
-                    <Nav.Link as={NavLink} to="/admin">
+                    <Nav.Link as={NavLink} to="/admin/users">
                       <span>User management</span>
+                      <span>›</span>
+                    </Nav.Link>
+                    <Nav.Link as={NavLink} to="/admin/logs">
+                      <span>User logs</span>
                       <span>›</span>
                     </Nav.Link>
                   </Nav>
                 </div>
+              )}
+
+              {role === 'sales_person' && (
+                <>
+                  <div className="mb-3">
+                    <div className="app-sidebar-section-title">Credit memo</div>
+                    <Nav className="flex-column">
+                      <Nav.Link as={NavLink} to="/sales/credit-memo/new">
+                        <span>New credit memo</span>
+                        <span>›</span>
+                      </Nav.Link>
+                      <Nav.Link as={NavLink} to="/sales/credit-memo/list">
+                        <span>Credit memo list</span>
+                        <span>›</span>
+                      </Nav.Link>
+                    </Nav>
+                  </div>
+                  <div className="mb-3">
+                    <div className="app-sidebar-section-title">Customers</div>
+                    <Nav className="flex-column">
+                      <Nav.Link as={NavLink} to="/sales/customers/new">
+                        <span>New customer</span>
+                        <span>›</span>
+                      </Nav.Link>
+                      <Nav.Link as={NavLink} to="/sales/customers">
+                        <span>Customers list</span>
+                        <span>›</span>
+                      </Nav.Link>
+                    </Nav>
+                  </div>
+                  <div className="mb-3">
+                    <div className="app-sidebar-section-title">Orders</div>
+                    <Nav className="flex-column">
+                      <Nav.Link as={NavLink} to="/sales/orders/draft">
+                        <span>Draft order list</span>
+                        <span>›</span>
+                      </Nav.Link>
+                      <Nav.Link as={NavLink} to="/sales/orders/new">
+                        <span>New order</span>
+                        <span>›</span>
+                      </Nav.Link>
+                      <Nav.Link as={NavLink} to="/sales/orders">
+                        <span>Order list</span>
+                        <span>›</span>
+                      </Nav.Link>
+                    </Nav>
+                  </div>
+                  <div className="mb-3">
+                    <div className="app-sidebar-section-title">Products</div>
+                    <Nav className="flex-column">
+                      <Nav.Link as={NavLink} to="/sales/products">
+                        <span>Product list</span>
+                        <span>›</span>
+                      </Nav.Link>
+                    </Nav>
+                  </div>
+                  <div className="mb-3">
+                    <div className="app-sidebar-section-title">Payments</div>
+                    <Nav className="flex-column">
+                      <Nav.Link as={NavLink} to="/sales/payments">
+                        <span>Receive payment</span>
+                        <span>›</span>
+                      </Nav.Link>
+                    </Nav>
+                  </div>
+                </>
               )}
               </nav>
             </div>

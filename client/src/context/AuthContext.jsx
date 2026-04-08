@@ -50,12 +50,30 @@ export function AuthProvider({ children }) {
     if (!res.ok) throw new Error(data.message || 'Login failed')
     if (!data.token || !data.user) throw new Error('Invalid response from server')
     localStorage.setItem('token', data.token)
+    if (data.loginLogId) localStorage.setItem('loginLogId', String(data.loginLogId))
     setUser(data.user)
     return data.user
   }
 
-  const logout = () => {
+  const logout = async () => {
+    const token = localStorage.getItem('token')
+    const loginLogId = localStorage.getItem('loginLogId')
+    if (token) {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ loginLogId }),
+        })
+      } catch {
+        // Best effort: local logout should still proceed
+      }
+    }
     localStorage.removeItem('token')
+    localStorage.removeItem('loginLogId')
     setUser(null)
   }
 

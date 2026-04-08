@@ -80,7 +80,7 @@ function formatDefaultUnitStock(product) {
   return `${displayUnits} ${unitLabel}`
 }
 
-function ProductListPage() {
+function ProductListPage({ showActions = true, title = 'Product List', salesView = false }) {
   const [filters, setFilters] = useState({
     category: 'all',
     subcategory: 'all',
@@ -89,7 +89,7 @@ function ProductListPage() {
     productId: '',
     productName: '',
     barcode: '',
-    status: 'all',
+    status: salesView ? 'Active' : 'all',
     vendor: 'all',
     fromExpiryDate: '',
     toExpiryDate: '',
@@ -123,8 +123,10 @@ function ProductListPage() {
       if (v === 'all') return
       // vendor is not stored yet; keep UI but don't send for now
       if (k === 'vendor') return
+      if (salesView && ['status', 'vendor', 'fromExpiryDate', 'toExpiryDate'].includes(k)) return
       params.set(k, String(v))
     })
+    if (salesView) params.set('status', 'Active')
 
     return `/api/products?${params.toString()}`
   }
@@ -163,7 +165,7 @@ function ProductListPage() {
   return (
     <div className="product-list-page">
       <div className="product-list-header">
-        <div className="product-list-title">Product List</div>
+        <div className="product-list-title">{title}</div>
       </div>
 
       <div className="product-list-filters">
@@ -199,18 +201,22 @@ function ProductListPage() {
         <input placeholder="Product Name" value={filters.productName} onChange={handleChange('productName')} />
         <input placeholder="Barcode" value={filters.barcode} onChange={handleChange('barcode')} />
 
-        <select value={filters.status} onChange={handleChange('status')}>
-          <option value="all">All Status</option>
-          <option value="Active">Active</option>
-          <option value="Inactive">Inactive</option>
-        </select>
+        {!salesView && (
+          <select value={filters.status} onChange={handleChange('status')}>
+            <option value="all">All Status</option>
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+        )}
 
-        <select value={filters.vendor} onChange={handleChange('vendor')}>
-          <option value="all">All Vendor</option>
-        </select>
+        {!salesView && (
+          <select value={filters.vendor} onChange={handleChange('vendor')}>
+            <option value="all">All Vendor</option>
+          </select>
+        )}
 
-        <input type="date" placeholder="From Expiry Date" value={filters.fromExpiryDate} onChange={handleChange('fromExpiryDate')} />
-        <input type="date" placeholder="To Expiry Date" value={filters.toExpiryDate} onChange={handleChange('toExpiryDate')} />
+        {!salesView && <input type="date" placeholder="From Expiry Date" value={filters.fromExpiryDate} onChange={handleChange('fromExpiryDate')} />}
+        {!salesView && <input type="date" placeholder="To Expiry Date" value={filters.toExpiryDate} onChange={handleChange('toExpiryDate')} />}
 
         <button
           className="product-list-search-btn"
@@ -232,7 +238,7 @@ function ProductListPage() {
           <table className="product-list-table">
             <thead>
               <tr>
-                <th>Action</th>
+                {showActions && <th>Action</th>}
                 <th>Product ID</th>
                 <th>Category</th>
                 <th>Subcategory</th>
@@ -241,38 +247,40 @@ function ProductListPage() {
                 <th>Stock</th>
                 <th>Re Order</th>
                 <th>Image</th>
-                <th>Status</th>
-                <th>Comm.</th>
-                <th>Expiry</th>
+                {!salesView && <th>Status</th>}
+                {!salesView && <th>Comm.</th>}
+                {!salesView && <th>Expiry</th>}
               </tr>
             </thead>
             <tbody>
               {items.map((p) => (
                 <tr key={p._id}>
-                  <td>
-                    <div className="product-list-actions" title="Edit / Print">
-                      <IconButton
-                        title="Edit"
-                        onClick={() => {
-                          window.location.href = `/products/edit/${p._id}`
-                        }}
-                      >
-                        <EditIcon />
-                      </IconButton>
-                      <IconButton
-                        title="Print label"
-                        onClick={() => {
-                          window.open(
-                            `/products/print/${p._id}`,
-                            '_blank',
-                            'noopener,noreferrer,width=900,height=700',
-                          )
-                        }}
-                      >
-                        <PrintIcon />
-                      </IconButton>
-                    </div>
-                  </td>
+                  {showActions && (
+                    <td>
+                      <div className="product-list-actions" title="Edit / Print">
+                        <IconButton
+                          title="Edit"
+                          onClick={() => {
+                            window.location.href = `/products/edit/${p._id}`
+                          }}
+                        >
+                          <EditIcon />
+                        </IconButton>
+                        <IconButton
+                          title="Print label"
+                          onClick={() => {
+                            window.open(
+                              `/products/print/${p._id}`,
+                              '_blank',
+                              'noopener,noreferrer,width=900,height=700',
+                            )
+                          }}
+                        >
+                          <PrintIcon />
+                        </IconButton>
+                      </div>
+                    </td>
+                  )}
                   <td>{p.productId}</td>
                   <td>{p.category}</td>
                   <td>{p.subcategory}</td>
@@ -296,18 +304,20 @@ function ProductListPage() {
                       }
                     />
                   </td>
-                  <td>
-                    <span className="product-list-status" style={{ background: p.isActive === false ? '#e5e7eb' : '#2ecc71', color: p.isActive === false ? '#374151' : '#fff' }}>
-                      {p.isActive === false ? 'Inactive' : 'Active'}
-                    </span>
-                  </td>
-                  <td>{Number(p.commissionPercent || 0).toFixed(2)}%</td>
-                  <td>{formatExpiry(p.expiryDate)}</td>
+                  {!salesView && (
+                    <td>
+                      <span className="product-list-status" style={{ background: p.isActive === false ? '#e5e7eb' : '#2ecc71', color: p.isActive === false ? '#374151' : '#fff' }}>
+                        {p.isActive === false ? 'Inactive' : 'Active'}
+                      </span>
+                    </td>
+                  )}
+                  {!salesView && <td>{Number(p.commissionPercent || 0).toFixed(2)}%</td>}
+                  {!salesView && <td>{formatExpiry(p.expiryDate)}</td>}
                 </tr>
               ))}
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="text-center text-muted">
+                  <td colSpan={showActions ? (salesView ? 9 : 12) : (salesView ? 8 : 11)} className="text-center text-muted">
                     {loading ? 'Loading...' : 'No products found'}
                   </td>
                 </tr>

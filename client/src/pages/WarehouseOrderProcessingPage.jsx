@@ -1,0 +1,410 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Badge, Button, Card, Form, Modal, Table } from 'react-bootstrap'
+import { useNavigate } from 'react-router-dom'
+import { api } from '../api/api'
+
+function WarehouseOrderProcessingPage() {
+  const navigate = useNavigate()
+  const [orders, setOrders] = useState([])
+  const [packers, setPackers] = useState([])
+  const [assignment, setAssignment] = useState({})
+  const [selectedOrderIds, setSelectedOrderIds] = useState([])
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('new')
+  const [showBulkAssign, setShowBulkAssign] = useState(false)
+  const [bulkPackerId, setBulkPackerId] = useState('')
+  const [bulkAssignMinutes, setBulkAssignMinutes] = useState('30')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const loadAll = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const [ordersRes, packersRes] = await Promise.all([
+        api.get('/api/sales/orders'),
+        api.get('/api/sales/packers'),
+      ])
+      const ordersData = await ordersRes.json().catch(() => [])
+      const packersData = await packersRes.json().catch(() => [])
+      if (!ordersRes.ok) throw new Error(ordersData?.message || 'Failed to load orders')
+      setOrders(Array.isArray(ordersData) ? ordersData : [])
+      setPackers(Array.isArray(packersData) ? packersData : [])
+      const next = {}
+      ;(Array.isArray(ordersData) ? ordersData : []).forEach((o) => {
+        next[o._id] = {
+          packerId: o.assignedPacker?._id || '',
+          assignMinutes: String(Math.max(1, Number(o.packerAssignMinutes) || 30)),
+        }
+      })
+      setAssignment(next)
+    } catch (e) {
+      setError(e.message || 'Failed to load processing queue.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadAll()
+  }, [])
+
+  const processingOrders = useMemo(
+    () => orders.filter((o) => ['new', 'processed', 'add-on'].includes(o.status)),
+    [orders],
+  )
+
+  const filteredOrders = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return processingOrders.filter((o) => {
+      const matchesStatus = statusFilter === 'all' ? true : o.status === statusFilter
+      const matchesSearch = !q
+        ? true
+        : [o.orderNumber, o.customer?.customerName, o.customer?.businessName, o.salesPerson?.name, o.salesPerson?.username]
+            .filter(Boolean)
+            .some((v) => String(v).toLowerCase().includes(q))
+      return matchesStatus && matchesSearch
+    })
+  }, [processingOrders, search, statusFilter])
+
+  const selectedOrders = useMemo(
+    () => filteredOrders.filter((o) => selectedOrderIds.includes(o._id)),
+    [filteredOrders, selectedOrderIds],
+  )
+
+  const allVisibleSelected =
+    filteredOrders.length > 0 && filteredOrders.every((o) => selectedOrderIds.includes(o._id))
+
+  const assignPacker = async (orderId) => {
+    const packerId = assignment[orderId]?.packerId
+    const assignMinutes = Math.max(1, Number(assignment[orderId]?.assignMinutes) || 30)
+    if (!packerId) return
+    const res = await api.patch(`/api/sales/orders/${orderId}/workflow`, {
+      action: 'assign_packer',
+      packerId,
+      assignMinutes,
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      setError(data?.message || 'Failed to assign packer.')
+      return
+    }
+    await loadAll()
+  }
+
+  const toggleSelectAllVisible = () => {
+    setSelectedOrderIds((prev) => {
+      if (allVisibleSelected) {
+        return prev.filter((id) => !filteredOrders.some((o) => o._id === id))
+      }
+      const merged = new Set([...prev, ...filteredOrders.map((o) => o._id)])
+      return Array.from(merged)
+    })
+  }
+
+  const toggleOrderSelection = (orderId) => {
+    setSelectedOrderIds((prev) =>
+      prev.includes(orderId) ? prev.filter((id) => id !== orderId) : [...prev, orderId],
+    )
+  }
+
+  const assignSelectedOrders = async ({ printAfterAssign = false } = {}) => {
+    if (!bulkPackerId || selectedOrders.length === 0) return
+    const assignMinutes = Math.max(1, Number(bulkAssignMinutes) || 30)
+    setError('')
+    for (const o of selectedOrders) {
+      const res = await api.patch(`/api/sales/orders/${o._id}/workflow`, {
+        action: 'assign_packer',
+        packerId: bulkPackerId,
+        assignMinutes,
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data?.message || `Failed to assign order ${o.orderNumber}.`)
+        return
+      }
+    }
+    if (printAfterAssign) {
+      const res = await api.get('/api/sales/orders')
+      const data = await res.json().catch(() => [])
+      if (!res.ok) {
+        setError('Orders were assigned, but failed to fetch assigned orders for printing.')
+      } else {
+        const allRows = Array.isArray(data) ? data : []
+        const toPrint = allRows.filter((o) => String(o.assignedPacker?._id || '') === String(bulkPackerId))
+        if (toPrint.length === 0) {
+          setError('Orders were assigned, but no packer-assigned orders were found for printing.')
+        } else {
+          printOrders(toPrint)
+        }
+      }
+    }
+    setShowBulkAssign(false)
+    setBulkPackerId('')
+    setBulkAssignMinutes('30')
+    setSelectedOrderIds([])
+    await loadAll()
+  }
+
+  const printOrders = (rows) => {
+    const w = window.open('', '_blank', 'width=1100,height=800')
+    if (!w) return
+    const sections = rows
+      .map((o, idx) => {
+        const orderNo = String(o.orderNumber || '')
+        const lineRows = (Array.isArray(o.lineItems) ? o.lineItems : [])
+          .map(
+            (l) => `<tr><td>${l.productId || ''}</td><td>${l.productName || ''}</td><td>${l.unitType || ''}</td><td style="text-align:right;">${Number(l.qty || 0)}</td></tr>`,
+          )
+          .join('')
+        return `
+          <section class="print-order ${idx < rows.length - 1 ? 'print-break' : ''}">
+            <div class="order-head">
+              <div>
+                <h3>Order ${orderNo}</h3>
+                <div class="muted">Order barcode</div>
+              </div>
+              <svg id="order-barcode-${idx}"></svg>
+            </div>
+            <hr />
+            <div>Status: ${o.status || ''}</div>
+            <div>Customer: ${o.customer?.customerName || o.customer?.businessName || ''}</div>
+            <div>Sales Person: ${o.salesPerson?.name || o.salesPerson?.username || ''}</div>
+            <div>Shipping: ${o.shippingType || ''}</div>
+            <hr />
+            <table>
+              <thead><tr><th>ID</th><th>Product</th><th>Unit</th><th>Qty</th></tr></thead>
+              <tbody>${lineRows}</tbody>
+            </table>
+          </section>
+        `
+      })
+      .join('')
+    w.document.write(`
+      <html>
+        <head>
+          <title>Packer Assigned Orders</title>
+          <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 16px; }
+            h3 { margin: 0 0 6px 0; }
+            .muted { font-size: 12px; color: #555; }
+            .order-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+            .print-break { page-break-after: always; }
+            table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+            th, td { border: 1px solid #bbb; padding: 8px; font-size: 12px; }
+            th { background: #f3f3f3; }
+          </style>
+        </head>
+        <body>
+          ${sections}
+          <script>
+            ${rows
+              .map((o, idx) => {
+                const orderNo = String(o.orderNumber || '')
+                return `
+                  try {
+                    JsBarcode('#order-barcode-${idx}', ${JSON.stringify(orderNo)}, {
+                      format: 'CODE128',
+                      width: 2,
+                      height: 42,
+                      displayValue: true,
+                      fontSize: 12,
+                      margin: 0,
+                    });
+                  } catch (e) {}
+                `
+              })
+              .join('\n')}
+          </script>
+        </body>
+      </html>
+    `)
+    w.document.close()
+    w.focus()
+    w.print()
+  }
+
+  return (
+    <>
+      <h2 className="mb-2">Order Processing</h2>
+      <div className="small text-muted mb-3">New and processed orders with packer assignment.</div>
+      {error && <div className="alert alert-danger py-2">{error}</div>}
+
+      <Card>
+        <Card.Header className="bg-white">
+          <div className="d-flex flex-wrap gap-2 align-items-end">
+            <div>
+              <div className="small text-muted mb-1">Search</div>
+              <Form.Control
+                size="sm"
+                style={{ minWidth: 250 }}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Order no, customer, sales person"
+              />
+            </div>
+            <div>
+              <div className="small text-muted mb-1">Status</div>
+              <Form.Select size="sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                <option value="all">All</option>
+                <option value="new">New</option>
+                <option value="processed">Processed</option>
+                <option value="add-on">Add-On</option>
+              </Form.Select>
+            </div>
+            <div className="ms-auto d-flex align-items-center gap-2">
+              <span className="small text-muted">{selectedOrders.length} selected</span>
+              <Button
+                size="sm"
+                variant="warning"
+                disabled={selectedOrders.length === 0}
+                onClick={() => setShowBulkAssign(true)}
+              >
+                Assign Order
+              </Button>
+            </div>
+          </div>
+        </Card.Header>
+        <Card.Body className="p-0">
+          {loading ? (
+            <p className="p-3 mb-0">Loading…</p>
+          ) : (
+            <Table responsive hover className="mb-0" size="sm">
+              <thead style={{ backgroundColor: '#1E1E2C', color: '#fff' }}>
+                <tr>
+                  <th style={{ width: 34 }}>
+                    <Form.Check checked={allVisibleSelected} onChange={toggleSelectAllVisible} />
+                  </th>
+                  <th>Status</th>
+                  <th>Order No</th>
+                  <th>Customer</th>
+                  <th>Sales Person</th>
+                  <th>Packer</th>
+                  <th>Time (min)</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredOrders.map((o) => (
+                  <tr key={o._id}>
+                    <td>
+                      <Form.Check
+                        checked={selectedOrderIds.includes(o._id)}
+                        onChange={() => toggleOrderSelection(o._id)}
+                      />
+                    </td>
+                    <td>
+                      <Badge bg={o.status === 'processed' ? 'warning' : 'primary'}>
+                        {o.status}
+                      </Badge>
+                    </td>
+                    <td>{o.orderNumber}</td>
+                    <td>{o.customer?.customerName || o.customer?.businessName || '—'}</td>
+                    <td>{o.salesPerson?.name || o.salesPerson?.username || '—'}</td>
+                    <td style={{ minWidth: 220 }}>
+                      <Form.Select
+                        size="sm"
+                        value={assignment[o._id]?.packerId || ''}
+                        onChange={(e) =>
+                          setAssignment((prev) => ({
+                            ...prev,
+                            [o._id]: { ...(prev[o._id] || {}), packerId: e.target.value },
+                          }))
+                        }
+                      >
+                        <option value="">Select packer</option>
+                        {packers.map((p) => (
+                          <option key={p._id} value={p._id}>
+                            {p.name || p.username}
+                          </option>
+                        ))}
+                      </Form.Select>
+                    </td>
+                    <td style={{ width: 120 }}>
+                      <Form.Control
+                        size="sm"
+                        type="number"
+                        min={1}
+                        value={assignment[o._id]?.assignMinutes || '30'}
+                        onChange={(e) =>
+                          setAssignment((prev) => ({
+                            ...prev,
+                            [o._id]: { ...(prev[o._id] || {}), assignMinutes: e.target.value },
+                          }))
+                        }
+                      />
+                    </td>
+                    <td>
+                      <div className="d-flex gap-2">
+                        <Button size="sm" variant="outline-warning" onClick={() => assignPacker(o._id)}>
+                          Assign
+                        </Button>
+                        <Button size="sm" variant="outline-dark" onClick={() => navigate(`/warehouse/orders/${o._id}`)}>
+                          Open
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {filteredOrders.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="text-center text-muted py-3">
+                      No orders found for current filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </Table>
+          )}
+        </Card.Body>
+      </Card>
+
+      <Modal show={showBulkAssign} onHide={() => setShowBulkAssign(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Assign Selected Orders</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <div className="small text-muted mb-2">
+            Select one packer for {selectedOrders.length} selected order(s).
+          </div>
+          <Form.Group className="mb-3">
+            <Form.Label>Assign Time (minutes)</Form.Label>
+            <Form.Control
+              type="number"
+              min={1}
+              value={bulkAssignMinutes}
+              onChange={(e) => setBulkAssignMinutes(e.target.value)}
+            />
+            <div className="small text-muted">Default is 30 minutes.</div>
+          </Form.Group>
+          {packers.map((p) => (
+            <Form.Check
+              key={p._id}
+              type="radio"
+              name="bulk-packer"
+              id={`bulk-packer-${p._id}`}
+              label={p.name || p.username}
+              checked={bulkPackerId === p._id}
+              onChange={() => setBulkPackerId(p._id)}
+              className="mb-2"
+            />
+          ))}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowBulkAssign(false)}>
+            Cancel
+          </Button>
+          <Button variant="warning" onClick={() => assignSelectedOrders({ printAfterAssign: false })} disabled={!bulkPackerId}>
+            Assign
+          </Button>
+          <Button variant="dark" onClick={() => assignSelectedOrders({ printAfterAssign: true })} disabled={!bulkPackerId}>
+            Assign & Print
+          </Button>
+        </Modal.Footer>
+      </Modal>
+    </>
+  )
+}
+
+export default WarehouseOrderProcessingPage

@@ -1,9 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Badge, Button, Card, Col, Form, Row, Table } from 'react-bootstrap'
+import { Alert, Badge, Button, Card, Col, Form, Modal, OverlayTrigger, Row, Table, Tooltip } from 'react-bootstrap'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../../api/api'
+import { useAuth } from '../../context/AuthContext'
 
-const SHIPPING_TYPES = ['Ground Shipping', 'Local Delivery', 'Pickup']
+const SHIPPING_TYPES = [
+  'Customer Pickup',
+  'Ground Shipping',
+  'Sales Pickup',
+  'Sales Quote - Customer Pickup',
+  'Sales Quote - Ground Shipping',
+  'Sales Quote - Sales Pickup',
+  'Sales Quote - UPS Regular',
+  'UPS Regular',
+]
 const TAX_TYPES = ['No Tax', 'Sales Tax']
 const TERMS_OPTIONS = ['30 days', 'COD', 'ACH']
 
@@ -19,10 +29,37 @@ function money(n) {
   return v.toFixed(2)
 }
 
+function formatCustomerAddress(addr) {
+  if (!addr || typeof addr !== 'object') return ''
+  const line1 = String(addr.address1 || '').trim()
+  const line2 = String(addr.address2 || '').trim()
+  const line3 = [addr.city, addr.state, addr.zipCode].filter(Boolean).join(', ')
+  return [line1, line2, line3].filter(Boolean).join('\n')
+}
+
+function getSelectablePackings(product) {
+  const allPackings = Array.isArray(product?.packings) ? product.packings : []
+  const enabledPackings = allPackings.filter((pk) => pk?.enabled !== false)
+  return enabledPackings.length > 0 ? enabledPackings : allPackings
+}
+
+function getDefaultPacking(product) {
+  const options = getSelectablePackings(product)
+  return (
+    options.find((u) => u?.isDefault === true) ||
+    options.find((u) => u?.unitType === 'Piece') ||
+    options[0] ||
+    null
+  )
+}
+
 function NewOrderPage() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [searchParams] = useSearchParams()
   const editId = searchParams.get('edit')
+  const isSalesPerson = user?.role === 'sales_person'
+  const canRemoveLine = !(isSalesPerson && !!editId)
 
   const [customers, setCustomers] = useState([])
   const [products, setProducts] = useState([])
@@ -64,6 +101,9 @@ function NewOrderPage() {
 
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [minPriceViolations, setMinPriceViolations] = useState([])
+  const [showMinPriceModal, setShowMinPriceModal] = useState(false)
+  const [priceLevelPrices, setPriceLevelPrices] = useState({})
 
   useEffect(() => {
     api.get('/api/sales/customers').then(async (res) => {
@@ -110,15 +150,43 @@ function NewOrderPage() {
 
   useEffect(() => {
     if (!selectedCustomer) return
-    const addr = selectedCustomer.storeLocation || ''
-    if (!billingAddress) setBillingAddress(addr)
-    if (!shippingAddress) setShippingAddress(addr)
+    if (editId) return
+    setBillingAddress(formatCustomerAddress(selectedCustomer.billingAddress))
+    setShippingAddress(formatCustomerAddress(selectedCustomer.shippingAddress))
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCustomer?._id])
+
+  useEffect(() => {
+    const customerId = selectedCustomer?._id
+    if (!customerId) {
+      setPriceLevelPrices({})
+      return
+    }
+    api
+      .get(`/api/sales/price-level/${customerId}/prices`)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({ items: [] }))
+        if (!res.ok) return
+        const map = {}
+        const items = Array.isArray(data.items) ? data.items : []
+        items.forEach((it) => {
+          const key = `${String(it.productId || '').trim()}__${String(it.unitType || '').trim()}`
+          map[key] = Math.max(0, Number(it.unitPrice) || 0)
+        })
+        setPriceLevelPrices(map)
+      })
+      .catch(() => setPriceLevelPrices({}))
   }, [selectedCustomer?._id])
 
   const productByMongoId = useMemo(() => {
     const map = new Map()
     products.forEach((p) => map.set(p._id, p))
+    return map
+  }, [products])
+
+  const productByBusinessId = useMemo(() => {
+    const map = new Map()
+    products.forEach((p) => map.set(p.productId, p))
     return map
   }, [products])
 
@@ -133,7 +201,7 @@ function NewOrderPage() {
   }
 
   const selectedProduct = pickProductId ? productByMongoId.get(pickProductId) : null
-  const unitOptions = selectedProduct ? (selectedProduct.packings || []).filter((p) => p.enabled !== false) : []
+  const unitOptions = selectedProduct ? getSelectablePackings(selectedProduct) : []
   const currentPacking = selectedProduct && pickUnitType
     ? (selectedProduct.packings || []).find((p) => p.unitType === pickUnitType)
     : null
@@ -141,29 +209,60 @@ function NewOrderPage() {
 
   useEffect(() => {
     if (!selectedProduct) return
-    const first = unitOptions.find((u) => u.unitType === 'Piece') || unitOptions[0]
-    if (!pickUnitType && first?.unitType) setPickUnitType(first.unitType)
+    const hasCurrentInOptions = unitOptions.some((u) => u?.unitType === pickUnitType)
+    if (hasCurrentInOptions) return
+    const first = getDefaultPacking(selectedProduct)
+    setPickUnitType(first?.unitType || '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickProductId])
+  }, [pickProductId, selectedProduct, unitOptions, pickUnitType])
 
   const addLine = (product, packing, qtyOverride) => {
     if (!product) return
-    const exists = lines.some((l) => l.productId === product.productId)
-    if (exists) {
-      setError('This product is already in the order. You cannot add it in a different unit.')
-      return
-    }
     const pack = packing || (product.packings || []).find((p) => p.unitType === pickUnitType) || (product.packings || [])[0]
     const unitType = pack?.unitType || 'Piece'
     const qtyPerUnit = Math.max(1, Number(pack?.qty) || 1)
     const qty = Math.max(1, Number(qtyOverride ?? pickQty) || 1)
     const pieces = qty * qtyPerUnit
-    const unitPrice = pickIsFreeItem ? 0 : Math.max(0, Number(pack?.cost ?? pack?.price ?? 0) || 0)
+    const rememberedPrice = priceLevelPrices[`${product.productId}__${unitType}`]
+    const basePrice = Math.max(0, Number(pack?.base ?? pack?.cost ?? pack?.price ?? 0) || 0)
+    const unitPrice = pickIsFreeItem
+      ? 0
+      : (rememberedPrice != null ? Math.max(0, Number(rememberedPrice) || 0) : basePrice)
     const srp = Math.max(0, Number(product.srp) || 0)
+    const sameUnitIndex = lines.findIndex((l) => l.productId === product.productId && l.unitType === unitType)
+    const differentUnitExists = lines.some((l) => l.productId === product.productId && l.unitType !== unitType)
+
+    if (differentUnitExists && sameUnitIndex === -1) {
+      setError('This product is already in the order with a different unit. Only one unit per product is allowed.')
+      return
+    }
+
+    if (sameUnitIndex >= 0) {
+      setError('')
+      setLines((prev) =>
+        prev.map((line, idx) => {
+          if (idx !== sameUnitIndex) return line
+          const nextQty = Math.max(0, Number(line.qty || 0)) + qty
+          const nextPieces = nextQty * Math.max(1, Number(line.qtyPerUnit || qtyPerUnit))
+          const nextLineTotal = Math.round(nextQty * Math.max(0, Number(line.unitPrice || unitPrice)) * 100) / 100
+          const discountAmount = Math.max(0, Number(line.discountAmount || 0))
+          return {
+            ...line,
+            qty: nextQty,
+            pieces: nextPieces,
+            lineTotal: nextLineTotal,
+            netPrice: Math.max(0, nextLineTotal - discountAmount),
+          }
+        }),
+      )
+      return
+    }
+
     const lineTotal = Math.round(qty * unitPrice * 100) / 100
     const discountPercent = 0
     const discountAmount = 0
     const netPrice = lineTotal
+    setError('')
     setLines((prev) => [
       ...prev,
       {
@@ -182,6 +281,7 @@ function NewOrderPage() {
         isExchange: !!pickIsExchange,
         isTaxable: pickIsTaxable !== false,
         isFreeItem: !!pickIsFreeItem,
+        isAddedLater: false,
       },
     ])
   }
@@ -320,6 +420,45 @@ function NewOrderPage() {
   useEffect(() => setVapeTax(autoVapeTax), [autoVapeTax])
   useEffect(() => setAdjustment(autoAdjustment), [autoAdjustment])
 
+  const validateMinSellingPrice = () => {
+    const customerType = String(selectedCustomer?.customerType || '').toLowerCase()
+    const minField = customerType === 'retail' ? 'retailMin' : 'whMin'
+    const violations = []
+    lines.forEach((line, idx) => {
+      const product = productByBusinessId.get(line.productId)
+      if (!product) return
+      const packing = (product.packings || []).find((pk) => pk.unitType === line.unitType)
+      const minPrice = Math.max(0, Number(packing?.[minField]) || 0)
+      const enteredPrice = Math.max(0, Number(line.unitPrice) || 0)
+      if (minPrice > 0 && enteredPrice < minPrice) {
+        violations.push({
+          idx,
+          productId: line.productId,
+          productName: line.productName,
+          enteredPrice,
+          minPrice,
+        })
+      }
+    })
+    return violations
+  }
+
+  const currentMinPriceViolations = useMemo(
+    () => validateMinSellingPrice(),
+    [lines, selectedCustomer, productByBusinessId],
+  )
+
+  const getLinePriceMeta = (line) => {
+    const product = productByBusinessId.get(line?.productId)
+    const packing = (product?.packings || []).find((pk) => pk.unitType === line?.unitType)
+    const basePrice = Math.max(0, Number(packing?.base ?? packing?.cost ?? packing?.price ?? 0) || 0)
+    const customerType = String(selectedCustomer?.customerType || '').toLowerCase()
+    const minField = customerType === 'retail' ? 'retailMin' : 'whMin'
+    const minPrice = Math.max(0, Number(packing?.[minField] ?? 0) || 0)
+    const customPrice = Math.max(0, Number(line?.unitPrice ?? 0) || 0)
+    return { basePrice, minPrice, customPrice }
+  }
+
   const save = async (submit) => {
     setError('')
     if (!selectedCustomer?._id) {
@@ -330,11 +469,21 @@ function NewOrderPage() {
       setError('Shipping Type is required.')
       return
     }
+    if (submit || !!editId) {
+      const violations = currentMinPriceViolations
+      if (violations.length > 0) {
+        setMinPriceViolations(violations)
+        setShowMinPriceModal(true)
+        setError('Item price cannot be lower than minimum selling price.')
+        return
+      }
+    }
+    setMinPriceViolations([])
     setSaving(true)
     try {
       const payload = {
         customerId: selectedCustomer._id,
-        status: submit ? 'submitted' : 'new',
+        status: 'new',
         orderDate,
         deliveryDate,
         terms,
@@ -356,6 +505,7 @@ function NewOrderPage() {
         weightTax,
         vapeTax,
         adjustment,
+        persistPriceLevelOnSubmit: submit === true,
       }
       const res = editId ? await api.put(`/api/sales/orders/${editId}`, payload) : await api.post('/api/sales/orders', payload)
       const data = await res.json().catch(() => ({}))
@@ -369,7 +519,7 @@ function NewOrderPage() {
   }
 
   return (
-    <>
+    <div className="sales-tablet-page sales-new-order-page">
       <h2 className="mb-4">New Order</h2>
       {error && <Alert variant="danger" dismissible onClose={() => setError('')}>{error}</Alert>}
 
@@ -419,13 +569,20 @@ function NewOrderPage() {
                   onChange={(e) => {
                     const c = customers.find((x) => x._id === e.target.value) || null
                     setSelectedCustomer(c)
+                    if (c) {
+                      setBillingAddress(formatCustomerAddress(c.billingAddress))
+                      setShippingAddress(formatCustomerAddress(c.shippingAddress))
+                    } else {
+                      setBillingAddress('')
+                      setShippingAddress('')
+                    }
                   }}
                   required
                 >
                   <option value="">- Select -</option>
                   {customers.map((c) => (
                     <option key={c._id} value={c._id}>
-                      {c.businessName} ({c.customerNumber || c._id})
+                      {(c.customerName || c.businessName || 'Customer')} - {c.customerNumber || 'No CST'}
                     </option>
                   ))}
                 </Form.Select>
@@ -434,7 +591,7 @@ function NewOrderPage() {
             <Col md={3}>
               <Form.Group>
                 <Form.Label>Customer Type</Form.Label>
-                <Form.Control value={selectedCustomer?.priceLevelCode || ''} readOnly disabled placeholder="" />
+                <Form.Control value={selectedCustomer?.customerType || ''} readOnly disabled placeholder="" />
               </Form.Group>
             </Col>
             <Col md={3}>
@@ -476,7 +633,16 @@ function NewOrderPage() {
             <Col md={4}>
               <Form.Group>
                 <Form.Label>Product <span className="text-danger">*</span></Form.Label>
-                <Form.Select value={pickProductId} onChange={(e) => { setPickProductId(e.target.value); setPickUnitType('') }}>
+                <Form.Select
+                  value={pickProductId}
+                  onChange={(e) => {
+                    const nextProductId = e.target.value
+                    setPickProductId(nextProductId)
+                    const chosen = products.find((p) => p._id === nextProductId)
+                    const defaultUnit = getDefaultPacking(chosen)
+                    setPickUnitType(defaultUnit?.unitType || '')
+                  }}
+                >
                   <option value="">- Select -</option>
                   {products.map((p) => (
                     <option key={p._id} value={p._id}>{p.productId} - {p.productName}</option>
@@ -552,10 +718,48 @@ function NewOrderPage() {
                 <tr><td colSpan={12} className="text-center text-muted py-3">No Product Selected.</td></tr>
               )}
               {lines.map((l, idx) => (
-                <tr key={`${l.productId}-${idx}`}>
-                  <td><Button variant="link" size="sm" className="text-danger p-0" onClick={removeLine(idx)}>Remove</Button></td>
-                  <td>{l.productId}</td>
-                  <td>{l.productName}</td>
+                <tr
+                  key={`${l.productId}-${idx}`}
+                  style={
+                    currentMinPriceViolations.some((v) => v.idx === idx)
+                      ? { backgroundColor: '#fee2e2' }
+                      : undefined
+                  }
+                >
+                  <td>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="text-danger p-0"
+                      onClick={removeLine(idx)}
+                      disabled={!canRemoveLine}
+                    >
+                      Remove
+                    </Button>
+                  </td>
+                  <td>
+                    <OverlayTrigger
+                      placement="top"
+                      overlay={(
+                        <Tooltip id={`line-price-meta-${idx}`}>
+                          {(() => {
+                            const meta = getLinePriceMeta(l)
+                            return `Base: $${money(meta.basePrice)} | Min: $${money(meta.minPrice)} | Custom: $${money(meta.customPrice)}`
+                          })()}
+                        </Tooltip>
+                      )}
+                    >
+                      <span style={{ cursor: 'help', textDecoration: 'underline dotted' }}>
+                        {l.productId}
+                      </span>
+                    </OverlayTrigger>
+                  </td>
+                  <td>
+                    <div className="d-flex align-items-center gap-2">
+                      <span>{l.productName}</span>
+                      {l.isAddedLater && <Badge bg="primary">Added later</Badge>}
+                    </div>
+                  </td>
                   <td>{l.unitType}</td>
                   <td className="text-end">
                     <Form.Control size="sm" type="number" min={0} value={l.qty ?? 0} onChange={(e) => updateLine(idx, { qty: e.target.value })} className="text-end" />
@@ -700,13 +904,41 @@ function NewOrderPage() {
       </Card>
 
       <div className="d-flex flex-wrap gap-2">
-        <Button type="button" disabled={saving} variant="secondary" onClick={() => save(false)}>Save</Button>
-        <Button type="button" disabled={saving} style={{ backgroundColor: '#F29F67', borderColor: '#F29F67', color: '#1E1E2C' }} onClick={() => save(true)}>
-          Submit
+        {!editId && (
+          <Button type="button" disabled={saving} variant="secondary" onClick={() => save(false)}>Save</Button>
+        )}
+        <Button
+          type="button"
+          disabled={saving}
+          style={{ backgroundColor: '#F29F67', borderColor: '#F29F67', color: '#1E1E2C' }}
+          onClick={() => save(true)}
+        >
+          {editId ? 'Update' : 'Submit'}
         </Button>
         <Button type="button" variant="outline-secondary" onClick={() => navigate('/sales/orders')}>Back</Button>
       </div>
-    </>
+
+      <Modal show={showMinPriceModal} onHide={() => setShowMinPriceModal(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Price Validation</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p className="mb-2">Items price can not be lower then min selling price.</p>
+          <ul className="mb-0 ps-3">
+            {minPriceViolations.map((v) => (
+              <li key={`${v.productId}-${v.idx}`}>
+                {v.productId} - {v.productName}: entered ${money(v.enteredPrice)} / min ${money(v.minPrice)}
+              </li>
+            ))}
+          </ul>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowMinPriceModal(false)}>
+            Close
+          </Button>
+        </Modal.Footer>
+      </Modal>
+    </div>
   )
 }
 

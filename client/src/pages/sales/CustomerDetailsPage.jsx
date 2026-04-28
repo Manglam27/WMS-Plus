@@ -18,6 +18,7 @@ function CustomerDetailsPage() {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [actionBusy, setActionBusy] = useState(false)
 
   const role = user?.role || ''
   const isManager = role === 'sales_manager' || role === 'admin'
@@ -67,6 +68,26 @@ function CustomerDetailsPage() {
   const totalOrderAmount = orders.reduce((sum, o) => sum + (Number(o.orderTotal) || 0), 0)
   const totalPaidAmount = 0 // Placeholder until payments are wired
   const totalDueAmount = Math.max(0, totalOrderAmount - totalPaidAmount)
+
+  const handleDecision = async (decision) => {
+    if (!customer?._id || !isManager || customer.status !== 'pending') return
+    setActionBusy(true)
+    try {
+      const endpoint =
+        decision === 'approve'
+          ? `/api/sales/customers/${customer._id}/approve`
+          : `/api/sales/customers/${customer._id}/decline`
+      const res = await api.patch(endpoint, {})
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.message || `Failed to ${decision} customer`)
+      setCustomer((prev) => ({ ...prev, ...data }))
+      setError('')
+    } catch (e) {
+      setError(e.message || 'Failed to update customer status')
+    } finally {
+      setActionBusy(false)
+    }
+  }
 
   const TABS = useMemo(() => {
     if (isManager) {
@@ -121,6 +142,26 @@ function CustomerDetailsPage() {
       <div className="vendor-details-header">
         <h1 className="vendor-details-title">Customer Details</h1>
         <div className="vendor-details-actions">
+          {isManager && customer.status === 'pending' && (
+            <>
+              <button
+                type="button"
+                className="vendor-details-btn vendor-details-btn-primary"
+                onClick={() => handleDecision('approve')}
+                disabled={actionBusy}
+              >
+                {actionBusy ? 'Processing...' : 'Approve'}
+              </button>
+              <button
+                type="button"
+                className="vendor-details-btn vendor-details-btn-secondary"
+                onClick={() => handleDecision('decline')}
+                disabled={actionBusy}
+              >
+                {actionBusy ? 'Processing...' : 'Decline'}
+              </button>
+            </>
+          )}
           <Link to="/sales/customers" className="vendor-details-btn vendor-details-btn-secondary">
             Back to list
           </Link>

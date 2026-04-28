@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Col, Form, Row, Table } from 'react-bootstrap'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../api/api'
+import { useAuth } from '../../context/AuthContext'
 
 const CUSTOMER_TYPES = ['Retail', 'Wholesale']
 const TERMS_OPTIONS = ['30 days', 'COD', 'ACH']
@@ -9,10 +10,13 @@ const CONTACT_PERSON_TYPES = ['Owner', 'Manager', 'Worker']
 
 function NewCustomerPage() {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const isManager = user?.role === 'sales_manager' || user?.role === 'admin'
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [saving, setSaving] = useState(false)
   const [customers, setCustomers] = useState([])
+  const [salesPeople, setSalesPeople] = useState([])
 
   const [form, setForm] = useState({
     customerName: '',
@@ -55,6 +59,7 @@ function NewCustomerPage() {
     matchedCustomerId: '',
     customPriceLevelName: '',
     extraNotes: '',
+    salesPersonId: '',
   })
 
   useEffect(() => {
@@ -66,6 +71,17 @@ function NewCustomerPage() {
       })
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (!isManager) return
+    api
+      .get('/api/sales/salespeople')
+      .then(async (res) => {
+        const data = await res.json().catch(() => [])
+        if (res.ok && Array.isArray(data)) setSalesPeople(data)
+      })
+      .catch(() => {})
+  }, [isManager])
 
   const handleChange = (field) => (e) => {
     const v = e.target.type === 'checkbox' ? e.target.checked : e.target.value
@@ -208,11 +224,17 @@ function NewCustomerPage() {
         matchedCustomerId: form.priceLevelMode === 'match' ? form.matchedCustomerId : undefined,
         customPriceLevelName: form.priceLevelMode === 'new' ? form.customPriceLevelName : undefined,
         extraNotes: form.extraNotes.trim(),
+        salesPersonId: isManager ? form.salesPersonId : undefined,
+        autoApprove: isManager ? true : undefined,
       }
       const res = await api.post('/api/sales/customers', body)
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.message || 'Failed to submit customer request')
-      setSuccess('Customer request submitted. It will appear as pending until approved.')
+      setSuccess(
+        isManager
+          ? 'Customer created and approved successfully.'
+          : 'Customer request submitted. It will appear as pending until approved.',
+      )
       setTimeout(() => navigate('/sales/customers'), 1500)
     } catch (err) {
       setError(err.message || 'Failed to submit')
@@ -249,9 +271,32 @@ function NewCustomerPage() {
               <Col md={4}>
                 <Form.Group>
                   <Form.Label>Status</Form.Label>
-                  <Form.Control value="Pending (awaiting approval)" readOnly disabled />
+                  <Form.Control
+                    value={isManager ? 'Active (auto-approved by sales manager)' : 'Pending (awaiting approval)'}
+                    readOnly
+                    disabled
+                  />
                 </Form.Group>
               </Col>
+              {isManager && (
+                <Col md={4}>
+                  <Form.Group>
+                    <Form.Label>Associated Sales Person <span className="text-danger">*</span></Form.Label>
+                    <Form.Select
+                      value={form.salesPersonId}
+                      onChange={handleChange('salesPersonId')}
+                      required
+                    >
+                      <option value="">Select sales person</option>
+                      {salesPeople.map((sp) => (
+                        <option key={sp._id} value={sp._id}>
+                          {sp.name || sp.username}
+                        </option>
+                      ))}
+                    </Form.Select>
+                  </Form.Group>
+                </Col>
+              )}
               <Col md={4}>
                 <Form.Group>
                   <Form.Label>Tax ID</Form.Label>
@@ -521,7 +566,7 @@ function NewCustomerPage() {
 
             <div className="d-flex gap-2">
               <Button type="submit" disabled={saving} style={{ backgroundColor: '#F29F67', borderColor: '#F29F67', color: '#1E1E2C' }}>
-                {saving ? 'Submitting…' : 'Submit request'}
+                {saving ? 'Submitting…' : isManager ? 'Create customer' : 'Submit request'}
               </Button>
               <Button type="button" variant="outline-secondary" onClick={() => navigate('/sales/customers')}>
                 Cancel

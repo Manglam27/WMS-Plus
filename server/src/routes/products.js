@@ -43,7 +43,7 @@ async function generateUniqueBarcode() {
 }
 
 // GET /api/products - list products (filters + pagination)
-router.get('/', protect, requireRole('admin', 'inventory_manager', 'inventory_receiver', 'sales_person', 'sales_manager'), async (req, res) => {
+router.get('/', protect, requireRole('admin', 'inventory_manager', 'inventory_receiver', 'sales_person', 'sales_manager', 'order_manager'), async (req, res) => {
   try {
     const {
       limit = '10',
@@ -97,7 +97,7 @@ router.get('/', protect, requireRole('admin', 'inventory_manager', 'inventory_re
 })
 
 // GET /api/products/:id - get single product
-router.get('/:id', protect, requireRole('admin', 'inventory_manager', 'inventory_receiver', 'sales_person', 'sales_manager'), async (req, res) => {
+router.get('/:id', protect, requireRole('admin', 'inventory_manager', 'inventory_receiver', 'sales_person', 'sales_manager', 'order_manager'), async (req, res) => {
   try {
     const product = await Product.findById(req.params.id)
     if (!product) return res.status(404).json({ message: 'Product not found' })

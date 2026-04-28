@@ -9,7 +9,7 @@ const ROLE_LABELS = {
   inventory_manager: 'Inventory Manager',
   inventory_receiver: 'Inventory Receiver',
   sales_manager: 'Sales Manager',
-  scanner_packer: 'Scanner / Packer',
+  scanner_packer: 'Packer',
   picker: 'Picker',
   sales_person: 'Sales Person',
   driver: 'Driver',
@@ -19,6 +19,7 @@ function Layout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const role = user?.role
+  const isScannerPacker = role === 'scanner_packer'
 
   const handleLogout = () => {
     logout()
@@ -64,21 +65,24 @@ function Layout() {
       </Navbar>
       <Container fluid className="py-4">
         <div className="d-flex">
-          <aside
-            className="border-end app-sidebar"
-            style={{ width: 250, minHeight: 'calc(100vh - 72px)' }}
-          >
-            <div className="app-sidebar-inner">
-              <nav className="small">
-                <div className="mb-3">
-                  <div className="app-sidebar-section-title">Main</div>
-                  <Nav className="flex-column">
-                    <Nav.Link as={NavLink} to="/" end>
-                      <span>Dashboard</span>
-                      <span>›</span>
-                    </Nav.Link>
-                  </Nav>
-                </div>
+          {!isScannerPacker ? (
+            <aside
+              className="border-end app-sidebar"
+              style={{ width: 250, minHeight: 'calc(100vh - 72px)' }}
+            >
+              <div className="app-sidebar-inner">
+                <nav className="small">
+                {role !== 'order_manager' && (
+                  <div className="mb-3">
+                    <div className="app-sidebar-section-title">Main</div>
+                    <Nav className="flex-column">
+                      <Nav.Link as={NavLink} to="/" end>
+                        <span>Dashboard</span>
+                        <span>›</span>
+                      </Nav.Link>
+                    </Nav>
+                  </div>
+                )}
 
               {role === 'inventory_manager' && (
                 <>
@@ -206,6 +210,26 @@ function Layout() {
                 </div>
               )}
 
+              {role === 'order_manager' && (
+                <div className="mb-3">
+                  <div className="app-sidebar-section-title">Warehouse</div>
+                  <Nav className="flex-column">
+                    <Nav.Link as={NavLink} to="/warehouse/orders">
+                      <span>Dashboard</span>
+                      <span>›</span>
+                    </Nav.Link>
+                    <Nav.Link as={NavLink} to="/warehouse/orders/processing">
+                      <span>Order list</span>
+                      <span>›</span>
+                    </Nav.Link>
+                    <Nav.Link as={NavLink} to="/warehouse/todo">
+                      <span>Todo</span>
+                      <span>›</span>
+                    </Nav.Link>
+                  </Nav>
+                </div>
+              )}
+
               {role === 'admin' && (
                 <div className="mb-3">
                   <div className="app-sidebar-section-title">Administration</div>
@@ -253,16 +277,8 @@ function Layout() {
                   <div className="mb-3">
                     <div className="app-sidebar-section-title">Orders</div>
                     <Nav className="flex-column">
-                      <Nav.Link as={NavLink} to="/sales/orders/draft">
-                        <span>Draft order list</span>
-                        <span>›</span>
-                      </Nav.Link>
-                      <Nav.Link as={NavLink} to="/sales/orders/new">
-                        <span>New order</span>
-                        <span>›</span>
-                      </Nav.Link>
                       <Nav.Link as={NavLink} to="/sales/orders">
-                        <span>Order list</span>
+                        <span>All order list</span>
                         <span>›</span>
                       </Nav.Link>
                     </Nav>
@@ -287,11 +303,56 @@ function Layout() {
                   </div>
                 </>
               )}
-              </nav>
-            </div>
-          </aside>
 
-          <main className="flex-grow-1 ps-3">
+              {role === 'sales_manager' && (
+                <>
+                  <div className="mb-3">
+                    <div className="app-sidebar-section-title">Customers</div>
+                    <Nav className="flex-column">
+                      <Nav.Link as={NavLink} to="/sales/customers/price-levels">
+                        <span>Manage price levels</span>
+                        <span>›</span>
+                      </Nav.Link>
+                      <Nav.Link as={NavLink} to="/sales/customers">
+                        <span>All customer list</span>
+                        <span>›</span>
+                      </Nav.Link>
+                      <Nav.Link as={NavLink} to="/sales/customers/draft">
+                        <span>Draft customer</span>
+                        <span>›</span>
+                      </Nav.Link>
+                    </Nav>
+                  </div>
+                  <div className="mb-3">
+                    <div className="app-sidebar-section-title">Orders</div>
+                    <Nav className="flex-column">
+                      <Nav.Link as={NavLink} to="/sales/orders">
+                        <span>All order list</span>
+                        <span>›</span>
+                      </Nav.Link>
+                      <Nav.Link as={NavLink} to="/sales/orders/assign-driver">
+                        <span>Assign driver</span>
+                        <span>›</span>
+                      </Nav.Link>
+                    </Nav>
+                  </div>
+                  <div className="mb-3">
+                    <div className="app-sidebar-section-title">Credit memo</div>
+                    <Nav className="flex-column">
+                      <Nav.Link as={NavLink} to="/sales/credit-memo/list">
+                        <span>Credit memo list</span>
+                        <span>›</span>
+                      </Nav.Link>
+                    </Nav>
+                  </div>
+                </>
+              )}
+                </nav>
+              </div>
+            </aside>
+          ) : null}
+
+          <main className={`flex-grow-1 ${isScannerPacker ? '' : 'ps-3'}`}>
             <Outlet />
           </main>
         </div>

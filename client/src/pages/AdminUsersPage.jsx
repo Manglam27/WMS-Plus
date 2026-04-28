@@ -5,11 +5,11 @@ import { api } from '../api/api'
 const ROLES = [
   { value: 'admin', label: 'Admin' },
   { value: 'accounts', label: 'Accounts' },
-  { value: 'order_manager', label: 'Order Manager' },
+  { value: 'order_manager', label: 'Warehouse Manager' },
   { value: 'inventory_manager', label: 'Inventory Manager' },
   { value: 'inventory_receiver', label: 'Inventory Receiver' },
   { value: 'sales_manager', label: 'Sales Manager' },
-  { value: 'scanner_packer', label: 'Scanner / Packer' },
+  { value: 'scanner_packer', label: 'Packer' },
   { value: 'picker', label: 'Picker' },
   { value: 'sales_person', label: 'Sales Person' },
   { value: 'driver', label: 'Driver' },

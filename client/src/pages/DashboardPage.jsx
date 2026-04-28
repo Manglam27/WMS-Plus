@@ -8,7 +8,7 @@ const ROLE_LABELS = {
   inventory_manager: 'Inventory Manager',
   inventory_receiver: 'Inventory Receiver',
   sales_manager: 'Sales Manager',
-  scanner_packer: 'Scanner / Packer',
+  scanner_packer: 'Packer',
   picker: 'Picker',
   sales_person: 'Sales Person',
   driver: 'Driver',

@@ -32,22 +32,22 @@ export function StockUpdateTab() {
     { unitType: 'Case', qtyPerUnit: 12, qty: '' },
   ])
   const [products, setProducts] = useState([])
+  const [refreshing, setRefreshing] = useState(false)
+
+  const loadProducts = async () => {
+    const res = await api.get('/api/products?limit=all&status=Active')
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.message || 'Failed to load products')
+    const all = Array.isArray(data.items) ? data.items : []
+    setProducts(all)
+  }
 
   useEffect(() => {
     let alive = true
-    api
-      .get('/api/products?limit=all&status=Active')
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(data.message || 'Failed to load products')
-        if (!alive) return
-        const all = Array.isArray(data.items) ? data.items : []
-        setProducts(all)
-      })
-      .catch(() => {
-        if (!alive) return
-        setProducts([])
-      })
+    loadProducts().catch(() => {
+      if (!alive) return
+      setProducts([])
+    })
 
     return () => {
       alive = false
@@ -172,6 +172,37 @@ export function StockUpdateTab() {
   }
 
   const selectedProduct = products.find((p) => p._id === form.selectedProduct) || null
+
+  const refreshSelectedProduct = async () => {
+    if (!form.selectedProduct) {
+      await loadProducts()
+      return
+    }
+    setRefreshing(true)
+    try {
+      const res = await api.get(`/api/products/${form.selectedProduct}`)
+      const data = await res.json().catch(() => null)
+      if (res.ok && data?._id) {
+        setProducts((prev) => {
+          const exists = prev.some((p) => String(p._id) === String(data._id))
+          if (!exists) return [data, ...prev]
+          return prev.map((p) => (String(p._id) === String(data._id) ? { ...p, ...data } : p))
+        })
+      } else {
+        await loadProducts()
+      }
+    } catch {
+      // ignore refresh failures
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!form.selectedProduct) return
+    refreshSelectedProduct()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.selectedProduct])
 
   const filteredProducts = useMemo(() => {
     const query = form.productSearch.trim().toLowerCase()
@@ -506,6 +537,15 @@ export function StockUpdateTab() {
                   : '(Select a product)'}
               </span>
             </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline-secondary"
+              onClick={refreshSelectedProduct}
+              disabled={refreshing}
+            >
+              {refreshing ? 'Refreshing...' : 'Refresh'}
+            </Button>
           </div>
         </Card.Header>
         <Card.Body>
@@ -554,7 +594,7 @@ export function StockUpdateTab() {
               </thead>
               <tbody>
                 {selectedProduct?.stockHistory?.length ? (
-                  [...selectedProduct.stockHistory].reverse().map((entry, idx) => {
+                  [...selectedProduct.stockHistory].map((entry, idx) => {
                     const date = entry.at ? new Date(entry.at) : null
                     const dateStr = date
                       ? `${date.toLocaleDateString()} ${date.toLocaleTimeString([], {
@@ -562,18 +602,21 @@ export function StockUpdateTab() {
                         minute: '2-digit',
                       })}`
                       : ''
-                    const defaultUnitLabel =
-                      entry.defaultUnitType && entry.defaultUnitQty
-                        ? `${entry.delta >= 0 ? '+' : ''}${(
-                          (entry.delta || 0) / (entry.defaultUnitQty || 1)
-                        ).toFixed(2)} ${entry.defaultUnitType}`
-                        : ''
-                    const currentDefaultLabel =
-                      entry.defaultUnitType && entry.defaultUnitQty
-                        ? `${(entry.newStock / entry.defaultUnitQty).toFixed(0)} ${
-                          entry.defaultUnitType
-                        }`
-                        : ''
+                    const fallbackPacking =
+                      (selectedProduct.packings || []).find((pk) => pk?.isDefault === true) ||
+                      (selectedProduct.packings || []).find((pk) => String(pk?.unitType || '') === 'Piece') ||
+                      (selectedProduct.packings || [])[0] ||
+                      null
+                    const unitType = entry.defaultUnitType || fallbackPacking?.unitType
+                    const unitQty = Math.max(1, Number(entry.defaultUnitQty || fallbackPacking?.qty || 0) || 1)
+                    const defaultUnitLabel = unitType
+                      ? `${entry.delta >= 0 ? '+' : ''}${(
+                        (entry.delta || 0) / unitQty
+                      ).toFixed(2)} ${unitType}`
+                      : ''
+                    const currentDefaultLabel = unitType
+                      ? `${(Number(entry.newStock || 0) / unitQty).toFixed(0)} ${unitType}`
+                      : ''
                     return (
                       <tr key={entry.at || idx}>
                         <td className="text-center">{dateStr}</td>

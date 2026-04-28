@@ -948,6 +948,9 @@ input[type='number'].no-spin {
   background: linear-gradient(135deg, #1e1e2c 0%, #2d2d45 100%);
   border: 0;
   box-shadow: 0 4px 14px rgba(30, 30, 44, 0.2);
+  position: sticky;
+  top: 8px;
+  z-index: 50;
 }
 
 .packer-top-strip .card-body {
@@ -1007,4 +1010,182 @@ input[type='number'].no-spin {
 .packer-action-btn--print {
   background: #2563eb !important;
   color: #fff !important;
+}
+
+/* Packer order open page */
+.packer-order-open-page .alert-info {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.packer-order-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.05);
+}
+
+.packer-order-card .card-header {
+  background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.packer-order-open-page .form-label {
+  font-weight: 600;
+  color: #334155;
+}
+
+.packer-order-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  white-space: nowrap;
+}
+
+.packer-order-table tbody td {
+  vertical-align: middle;
+}
+
+.packer-current-stock-cell {
+  min-width: 120px;
+  white-space: nowrap;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.packer-image-thumb {
+  width: 38px;
+  height: 38px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  position: relative;
+  overflow: hidden;
+  display: inline-block;
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.packer-image-thumb:hover {
+  transform: scale(1.9);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.2);
+  z-index: 5;
+}
+
+.packer-image-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+  position: relative;
+  z-index: 2;
+}
+
+.packer-image-fallback {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.packer-image-fallback::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 8px;
+  width: 24px;
+  height: 18px;
+  border: 1.5px solid #94a3b8;
+  border-radius: 3px;
+}
+
+.packer-image-fallback::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 13px;
+  width: 14px;
+  height: 8px;
+  border-left: 1.5px solid #94a3b8;
+  border-bottom: 1.5px solid #94a3b8;
+  transform: skewX(-20deg);
+}
+
+.packer-order-table tbody tr:hover {
+  background-color: #f8fafc;
+}
+
+.packer-manual-row {
+  background-color: #fff8cc !important;
+}
+
+.packer-partial-row {
+  background-color: #ecfdf3 !important;
+}
+
+.packer-order-table .packer-manual-row > td {
+  background-color: #fff8cc !important;
+}
+
+.packer-order-table .packer-partial-row > td {
+  background-color: #ecfdf3 !important;
+}
+
+.packer-order-footer {
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+}
+
+.packer-packed-qty-input {
+  text-align: center;
+}
+
+.packer-packed-qty-input::-webkit-outer-spin-button,
+.packer-packed-qty-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.packer-packed-qty-input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.packer-product-select {
+  min-height: 38px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #475569 50%),
+    linear-gradient(135deg, #475569 50%, transparent 50%),
+    linear-gradient(to right, #e2e8f0, #e2e8f0);
+  background-position:
+    calc(100% - 18px) calc(50% - 3px),
+    calc(100% - 13px) calc(50% - 3px),
+    calc(100% - 2.25rem) 0.4rem;
+  background-size:
+    6px 6px,
+    6px 6px,
+    1px calc(100% - 0.8rem);
+  background-repeat: no-repeat;
+  padding-right: 2.5rem;
+  font-weight: 500;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.packer-product-select:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background-color: #f8fafc;
+}
+
+.packer-product-select:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.18);
+}
+
+.packer-product-select:disabled {
+  background-color: #f1f5f9;
+  color: #64748b;
 }

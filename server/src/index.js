@@ -8,6 +8,7 @@ import productRoutes from './routes/products.js'
 import vendorRoutes from './routes/vendors.js'
 import poRoutes from './routes/po.js'
 import salesRoutes from './routes/sales.js'
+import companySettingsRoutes from './routes/companySettings.js'
 import User from './models/User.js'
 import { ensureDir, uploadsRoot } from './uploads.js'
 
@@ -28,6 +29,7 @@ app.use('/api/products', productRoutes)
 app.use('/api/vendors', vendorRoutes)
 app.use('/api/po', poRoutes)
 app.use('/api/sales', salesRoutes)
+app.use('/api/company-settings', companySettingsRoutes)
 
 ensureDir(path.join(uploadsRoot(), 'po'))
 

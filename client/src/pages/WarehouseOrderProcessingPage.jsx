@@ -110,6 +110,7 @@ function WarehouseOrderProcessingPage() {
 
   const assignSelectedOrders = async ({ printAfterAssign = false } = {}) => {
     if (!bulkPackerId || selectedOrders.length === 0) return
+    const selectedIds = new Set(selectedOrders.map((o) => String(o._id)))
     const assignMinutes = Math.max(1, Number(bulkAssignMinutes) || 30)
     setError('')
     for (const o of selectedOrders) {
@@ -131,7 +132,11 @@ function WarehouseOrderProcessingPage() {
         setError('Orders were assigned, but failed to fetch assigned orders for printing.')
       } else {
         const allRows = Array.isArray(data) ? data : []
-        const toPrint = allRows.filter((o) => String(o.assignedPacker?._id || '') === String(bulkPackerId))
+        const toPrint = allRows.filter(
+          (o) =>
+            selectedIds.has(String(o._id)) &&
+            String(o.assignedPacker?._id || '') === String(bulkPackerId),
+        )
         if (toPrint.length === 0) {
           setError('Orders were assigned, but no packer-assigned orders were found for printing.')
         } else {
@@ -154,26 +159,24 @@ function WarehouseOrderProcessingPage() {
         const orderNo = String(o.orderNumber || '')
         const lineRows = (Array.isArray(o.lineItems) ? o.lineItems : [])
           .map(
-            (l) => `<tr><td>${l.productId || ''}</td><td>${l.productName || ''}</td><td>${l.unitType || ''}</td><td style="text-align:right;">${Number(l.qty || 0)}</td></tr>`,
+            (l) => `<tr><td>${l.productId || ''}</td><td>${l.productName || ''}</td><td>${l.unitType || ''}</td><td class="text-end">${Number(l.qty || 0)}</td></tr>`,
           )
           .join('')
         return `
           <section class="print-order ${idx < rows.length - 1 ? 'print-break' : ''}">
-            <div class="order-head">
-              <div>
-                <h3>Order ${orderNo}</h3>
-                <div class="muted">Order barcode</div>
-              </div>
+            <div class="print-header">
+              <h3 class="print-title">Order ${orderNo}</h3>
               <svg id="order-barcode-${idx}"></svg>
             </div>
-            <hr />
-            <div>Status: ${o.status || ''}</div>
-            <div>Customer: ${o.customer?.customerName || o.customer?.businessName || ''}</div>
-            <div>Sales Person: ${o.salesPerson?.name || o.salesPerson?.username || ''}</div>
-            <div>Shipping: ${o.shippingType || ''}</div>
-            <hr />
-            <table>
-              <thead><tr><th>ID</th><th>Product</th><th>Unit</th><th>Qty</th></tr></thead>
+            <div class="print-meta">
+              <div><strong>Status:</strong> ${o.status || ''}</div>
+              <div><strong>Customer:</strong> ${o.customer?.customerName || o.customer?.businessName || ''}</div>
+              <div><strong>Sales Person:</strong> ${o.salesPerson?.name || o.salesPerson?.username || ''}</div>
+              <div><strong>Shipping Type:</strong> ${o.shippingType || '-'}</div>
+              <div class="print-address"><strong>Shipping Address:</strong><br/>${o.shippingAddress || '-'}</div>
+            </div>
+            <table class="print-table">
+              <thead><tr><th>ID</th><th>Product</th><th>Unit</th><th class="text-end">Ordered Qty</th></tr></thead>
               <tbody>${lineRows}</tbody>
             </table>
           </section>
@@ -184,45 +187,103 @@ function WarehouseOrderProcessingPage() {
       <html>
         <head>
           <title>Packer Assigned Orders</title>
-          <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
           <style>
-            body { font-family: Arial, sans-serif; padding: 16px; }
-            h3 { margin: 0 0 6px 0; }
-            .muted { font-size: 12px; color: #555; }
-            .order-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+            body {
+              font-family: Arial, sans-serif;
+              padding: 16px;
+              color: #0f172a;
+            }
             .print-break { page-break-after: always; }
-            table { width: 100%; border-collapse: collapse; margin-top: 6px; }
-            th, td { border: 1px solid #bbb; padding: 8px; font-size: 12px; }
-            th { background: #f3f3f3; }
+            .print-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+              gap: 16px;
+              margin-bottom: 10px;
+            }
+            .print-title {
+              margin: 0;
+              font-size: 24px;
+              font-weight: 800;
+            }
+            .print-meta {
+              margin: 10px 0 14px;
+              border: 1px solid #cbd5e1;
+              border-radius: 8px;
+              padding: 10px 12px;
+              background: #f8fafc;
+              line-height: 1.45;
+              font-size: 14px;
+            }
+            .print-meta strong {
+              color: #1e293b;
+            }
+            .print-address {
+              margin-top: 8px;
+              border-top: 1px dashed #94a3b8;
+              padding-top: 8px;
+              white-space: pre-wrap;
+              word-break: break-word;
+            }
+            .print-table {
+              width: 100%;
+              border-collapse: collapse;
+              font-size: 13px;
+            }
+            .print-table th {
+              background: #1e293b;
+              color: #fff;
+              padding: 8px;
+              border: 1px solid #334155;
+              text-align: left;
+            }
+            .print-table td {
+              border: 1px solid #cbd5e1;
+              padding: 7px 8px;
+              vertical-align: top;
+            }
+            .text-end { text-align: right; }
           </style>
         </head>
         <body>
           ${sections}
           <script>
-            ${rows
-              .map((o, idx) => {
-                const orderNo = String(o.orderNumber || '')
-                return `
-                  try {
-                    JsBarcode('#order-barcode-${idx}', ${JSON.stringify(orderNo)}, {
-                      format: 'CODE128',
-                      width: 2,
-                      height: 42,
-                      displayValue: true,
-                      fontSize: 12,
-                      margin: 0,
-                    });
-                  } catch (e) {}
-                `
-              })
-              .join('\n')}
+            window.__ordersBarcodeReady = false;
+            function renderAndPrint() {
+              if (window.__ordersBarcodeReady) return;
+              if (typeof JsBarcode !== 'function') return;
+              window.__ordersBarcodeReady = true;
+              ${rows
+                .map((o, idx) => {
+                  const orderNo = String(o.orderNumber || '')
+                  return `
+                    try {
+                      JsBarcode('#order-barcode-${idx}', ${JSON.stringify(orderNo)}, {
+                        format: 'CODE128',
+                        width: 2,
+                        height: 40,
+                        displayValue: true,
+                        fontSize: 12,
+                        margin: 0,
+                      });
+                    } catch (e) {}
+                  `
+                })
+                .join('\n')}
+              requestAnimationFrame(() => {
+                setTimeout(() => {
+                  window.focus();
+                  window.print();
+                }, 120);
+              });
+            }
+            window.addEventListener('load', () => setTimeout(renderAndPrint, 50));
           </script>
+          <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js" onload="renderAndPrint()"></script>
         </body>
       </html>
     `)
     w.document.close()
-    w.focus()
-    w.print()
   }
 
   return (

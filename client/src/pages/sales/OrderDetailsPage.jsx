@@ -18,10 +18,11 @@ function OrderDetailsPage() {
   const [showLogModal, setShowLogModal] = useState(false)
   const [showAssignModal, setShowAssignModal] = useState(false)
   const [drivers, setDrivers] = useState([])
-  const [assignChoice, setAssignChoice] = useState('')
+  const [assignChoice, setAssignChoice] = useState('customer')
   const [actionMessage, setActionMessage] = useState('')
-  const [showPackedLabelModal, setShowPackedLabelModal] = useState(false)
-  const [totalBoxesInput, setTotalBoxesInput] = useState('1')
+  const [showInvoicePrintModal, setShowInvoicePrintModal] = useState(false)
+  const [invoiceTemplate, setInvoiceTemplate] = useState('default')
+  const [companySettings, setCompanySettings] = useState(null)
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [cancelRemark, setCancelRemark] = useState('')
 
@@ -43,6 +44,16 @@ function OrderDetailsPage() {
       .then(async (res) => {
         const data = await res.json().catch(() => [])
         if (res.ok) setDrivers(Array.isArray(data) ? data : [])
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    api
+      .get('/api/company-settings')
+      .then(async (res) => {
+        const data = await res.json().catch(() => null)
+        if (res.ok && data) setCompanySettings(data)
       })
       .catch(() => {})
   }, [])
@@ -92,7 +103,8 @@ function OrderDetailsPage() {
   }
 
   const canAssignDriver = ['packed', 'add-on-packed'].includes(order?.status)
-  const canCancel = order?.status === 'new'
+  const canCancel = ['sales_manager', 'admin'].includes(user?.role) &&
+    ['new', 'processed', 'add-on', 'packed', 'add-on-packed', 'ready-to-ship'].includes(order?.status)
   const canPrintPackedLabel = ['packed', 'add-on-packed', 'ready-to-ship', 'shipped', 'delivered', 'undelivered', 'close'].includes(order?.status)
   const isSalesPerson = user?.role === 'sales_person'
   const isSalesPersonViewOnly = isSalesPerson && ['shipped', 'delivered', 'undelivered', 'close', 'cancelled'].includes(String(order?.status || ''))
@@ -100,28 +112,24 @@ function OrderDetailsPage() {
   const assignDriver = async () => {
     if (!order) return
     setActionMessage('')
-    if (assignChoice === 'customer_pickup') {
-      const res = await api.put(`/api/sales/orders/${order._id}`, { shippingType: 'Customer Pickup' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setActionMessage(data.message || 'Failed to set Customer Pickup.')
-        return
-      }
-      setOrder(data)
-      setShowAssignModal(false)
-      return
-    }
     if (!assignChoice) {
-      setActionMessage('Select a driver or Customer Pickup.')
+      setActionMessage('Select assignment option.')
       return
     }
-    const res = await api.patch(`/api/sales/orders/${order._id}/workflow`, {
-      action: 'assign_driver',
-      driverId: assignChoice,
-    })
+    const isCustomer = assignChoice === 'customer'
+    const isSalesPerson = assignChoice === 'sales_person'
+    const isUpsDriver = assignChoice === 'ups_driver'
+    const payload = isCustomer
+      ? { action: 'assign_driver', assignTarget: 'customer' }
+      : isSalesPerson
+        ? { action: 'assign_driver', assignTarget: 'sales_person' }
+        : isUpsDriver
+          ? { action: 'assign_driver', assignTarget: 'ups_driver' }
+          : { action: 'assign_driver', assignTarget: 'driver', driverId: assignChoice }
+    const res = await api.patch(`/api/sales/orders/${order._id}/workflow`, payload)
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
-      setActionMessage(data.message || 'Failed to assign driver.')
+      setActionMessage(data.message || 'Failed to assign order.')
       return
     }
     setOrder(data)
@@ -148,22 +156,27 @@ function OrderDetailsPage() {
 
   const printPackedBoxLabels = () => {
     if (!order) return
-    const totalBoxes = Math.max(1, Number(totalBoxesInput) || 1)
-    const orderNo = String(order.orderNumber || '')
-    const customerNo = String(order.customer?.customerNumber || order.customer?.customerId || 'N/A')
-    const salesPerson = String(order.salesPerson?.name || order.salesPerson?.username || 'N/A')
+    const totalBoxes = Math.max(1, Number(order?.noOfPackedBoxes) || 1)
+    const orderNo = String(order.orderNumber || '').trim()
+    const orderNoLast4 = orderNo ? orderNo.slice(-4) : ''
+    const customerId = String(
+      order.customer?.customerNumber || order.customer?.customerId || order.customer?._id || '',
+    ).trim() || '-'
+    const shippingAddress = String(order.shippingAddress || '').trim() || '-'
+    const salesPersonName = String(order.salesPerson?.name || order.salesPerson?.username || '').trim() || '-'
 
-    const labelHtml = Array.from({ length: totalBoxes }).map((_, i) => {
+    const labelHtml = Array.from({ length: totalBoxes }, (_, i) => {
       const boxNo = i + 1
-      const barcodeValue = `${orderNo}/${boxNo}`
       return `
-        <div class="label">
-          <div class="order-no">${orderNo}</div>
-          <svg id="barcode-${boxNo}" class="barcode"></svg>
-          <div class="box-count">${boxNo}/${totalBoxes}</div>
-          <div class="meta">Customer: ${customerNo}</div>
-          <div class="meta">Sales: ${salesPerson}</div>
-          <script>window.__barcodeQueue = window.__barcodeQueue || []; window.__barcodeQueue.push({ id: "barcode-${boxNo}", value: "${barcodeValue}" });<\/script>
+        <div class="sticker">
+          <div class="sticker-card">
+            <div class="sticker-header">${customerId}</div>
+            <div class="order-no">${orderNoLast4 || orderNo || '-'}</div>
+            <div class="box-meta">Box ${boxNo} of ${totalBoxes}</div>
+            <div class="barcode-wrap"><svg id="barcode-${boxNo}"></svg></div>
+            <div class="address-block">${shippingAddress}</div>
+            <div class="sales-footer">Sales Person: ${salesPersonName}</div>
+          </div>
         </div>
       `
     }).join('')
@@ -177,49 +190,306 @@ function OrderDetailsPage() {
           <title>Packed Box Barcode Labels</title>
           <style>
             @page { size: 4in 6in; margin: 0; }
-            body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
-            .label {
+            html, body {
+              width: 4in;
+              height: 6in;
+              margin: 0;
+              padding: 0;
+              font-family: Arial, sans-serif;
+            }
+            .sticker {
               width: 4in;
               height: 6in;
               box-sizing: border-box;
               padding: 0.2in;
-              border: 1px solid #111;
+              display: flex;
+              flex-direction: column;
+              justify-content: center;
+              align-items: center;
+              background: #fff;
               page-break-after: always;
+            }
+            .sticker:last-child {
+              page-break-after: auto;
+            }
+            .sticker-card {
+              width: 100%;
+              height: 100%;
+              box-sizing: border-box;
+              border: 2px solid #111;
+              border-radius: 10px;
+              padding: 0.22in;
               display: flex;
               flex-direction: column;
               justify-content: flex-start;
               align-items: center;
-              gap: 0.15in;
             }
-            .order-no { font-size: 22px; font-weight: 700; margin-top: 0.1in; }
-            .barcode { width: 3.3in; height: 1.8in; }
-            .box-count { font-size: 20px; font-weight: 700; margin-top: 0.1in; }
-            .meta { font-size: 13px; width: 100%; text-align: left; }
+            .sticker-header {
+              width: 100%;
+              text-align: center;
+              border: 1px solid #222;
+              border-radius: 6px;
+              padding: 8px 10px;
+              font-size: 18px;
+              font-weight: 800;
+              letter-spacing: 1px;
+              margin-bottom: 14px;
+            }
+            .order-no {
+              font-size: 54px;
+              font-weight: 800;
+              line-height: 1.2;
+              text-align: center;
+              margin-bottom: 10px;
+              word-break: break-word;
+              letter-spacing: 1px;
+            }
+            .box-meta {
+              font-size: 28px;
+              font-weight: 800;
+              text-align: center;
+              margin-bottom: 14px;
+              letter-spacing: 0.3px;
+            }
+            .barcode-wrap {
+              width: 100%;
+              border: 1.5px solid #111;
+              border-radius: 8px;
+              padding: 12px 8px 10px;
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              margin-top: 4px;
+              margin-bottom: 12px;
+            }
+            .sales-footer {
+              width: 100%;
+              text-align: center;
+              border-top: 1px dashed #666;
+              padding-top: 8px;
+              font-size: 14px;
+              font-weight: 700;
+              letter-spacing: 0.2px;
+            }
+            .address-block {
+              width: 100%;
+              border: 1px solid #ccc;
+              border-radius: 6px;
+              padding: 8px 10px;
+              margin-bottom: 8px;
+              font-size: 12px;
+              line-height: 1.3;
+              font-weight: 600;
+              text-align: left;
+              white-space: normal;
+              word-break: break-word;
+            }
           </style>
-          <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
         </head>
         <body>
           ${labelHtml}
           <script>
-            (window.__barcodeQueue || []).forEach(function (item) {
-              try {
-                JsBarcode('#' + item.id, item.value, {
-                  format: 'CODE128',
-                  width: 2.2,
-                  height: 90,
-                  displayValue: true,
-                  fontSize: 18,
-                  margin: 4
-                });
-              } catch (e) {}
+            window.__barcodeReady = false;
+            function renderAndPrint() {
+              if (window.__barcodeReady) return;
+              if (typeof JsBarcode !== 'function') return;
+              window.__barcodeReady = true;
+              ${Array.from({ length: totalBoxes }, (_, idx) => {
+                const boxNo = idx + 1
+                const barcodeValue = `${orderNo}/${boxNo}`
+                return `
+                  try {
+                    JsBarcode('#barcode-${boxNo}', ${JSON.stringify(barcodeValue)}, {
+                      format:'CODE128',
+                      width:2.6,
+                      height:120,
+                      margin:0,
+                      displayValue:true,
+                      fontSize:28,
+                      fontOptions:'bold',
+                      textMargin:8
+                    });
+                  } catch (e) {}
+                `
+              }).join('\n')}
+              requestAnimationFrame(() => {
+                setTimeout(() => {
+                  window.focus();
+                  window.print();
+                }, 120);
+              });
+            }
+            window.addEventListener('load', () => setTimeout(renderAndPrint, 50));
+          </script>
+          <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js" onload="renderAndPrint()"></script>
+        </body>
+      </html>
+    `)
+    win.document.close()
+  }
+
+  const printInvoice = () => {
+    if (!order) return
+    const win = window.open('', '_blank', 'width=1000,height=860')
+    if (!win) return
+    const orderNo = String(order.orderNumber || '')
+    const invoiceTitle = invoiceTemplate === 'sales_quote' ? 'Sales Quote Invoice' : 'Invoice'
+    const companyName = String(companySettings?.companyName || 'Your Company').trim()
+    const companyLogo = companySettings?.logoFileName
+      ? `/api/uploads/company/${companySettings.logoFileName}`
+      : ''
+    const companyAddress = [
+      companySettings?.addressLine1,
+      companySettings?.addressLine2,
+      [companySettings?.city, companySettings?.state, companySettings?.zipCode].filter(Boolean).join(', '),
+    ].filter(Boolean).join('\n')
+    const taxLabel = String(companySettings?.salesTaxLabel || 'Sales Tax').trim() || 'Sales Tax'
+    const taxPercent = Math.max(0, Number(companySettings?.salesTaxPercent) || 0)
+    const taxDisplay = companySettings?.enableSalesTax === false
+      ? `${taxLabel}: Disabled`
+      : `${taxLabel} (${taxPercent.toFixed(2)}%)`
+    const footerDisclosure = String(companySettings?.invoiceDisclosure || '').trim()
+    const footerTerms = String(companySettings?.invoiceTerms || order.terms || '').trim()
+    const groupedByCategory = (order.lineItems || []).reduce((acc, item) => {
+      const category = String(
+        item?.baseCategory || item?.category || item?.categoryName || item?.productCategory || 'Uncategorized',
+      ).trim() || 'Uncategorized'
+      if (!acc[category]) acc[category] = []
+      acc[category].push(item)
+      return acc
+    }, {})
+    const categorySections = Object.entries(groupedByCategory)
+      .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+      .map(([category, items]) => {
+        const rows = [...items]
+          .sort((a, b) => {
+            const nameA = String(a?.productName || '').trim()
+            const nameB = String(b?.productName || '').trim()
+            const byName = nameA.localeCompare(nameB, undefined, { sensitivity: 'base' })
+            if (byName !== 0) return byName
+            const idA = String(a?.productId || '').trim()
+            const idB = String(b?.productId || '').trim()
+            return idA.localeCompare(idB, undefined, { sensitivity: 'base' })
+          })
+          .map((l) => `
+            <tr>
+              <td>${l.productId || ''}</td>
+              <td>${l.productName || ''}</td>
+              <td>${l.unitType || ''}</td>
+              <td style="text-align:right;">${Number(l.qty || 0)}</td>
+              <td style="text-align:right;">${money(l.srp)}</td>
+              <td style="text-align:right;">${money(l.unitPrice)}</td>
+              <td style="text-align:right;">${money(l.netPrice)}</td>
+            </tr>
+          `)
+          .join('')
+        const categoryTotal = items.reduce((sum, l) => sum + (Number(l.netPrice) || 0), 0)
+        return `
+          <div class="category-block">
+            <div class="category-title">${category}</div>
+            <table>
+              <colgroup>
+                <col style="width: 12%;" />
+                <col style="width: 32%;" />
+                <col style="width: 10%;" />
+                <col style="width: 8%;" />
+                <col style="width: 12%;" />
+                <col style="width: 13%;" />
+                <col style="width: 13%;" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Product</th>
+                  <th>Unit</th>
+                  <th style="text-align:right;">Qty</th>
+                  <th style="text-align:right;">SRP</th>
+                  <th style="text-align:right;">Unit Price</th>
+                  <th style="text-align:right;">Net Price</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+            <div class="category-total"><strong>${category} Subtotal:</strong> $ ${money(categoryTotal)}</div>
+          </div>
+        `
+      })
+      .join('')
+    win.document.write(`
+      <html>
+        <head>
+          <title>${invoiceTitle} - ${orderNo}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 18px; color: #0f172a; background: #fff; }
+            .sheet { border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px; }
+            .head { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:8px; border-bottom: 2px solid #1e293b; padding-bottom: 10px; }
+            .head h3 { margin:0; color: #1e293b; }
+            .invoice-code { font-size: 13px; color: #334155; margin-top: 6px; }
+            .meta { border:1px solid #cbd5e1; background:#f8fafc; border-radius:8px; padding:10px 12px; margin-bottom:14px; line-height:1.45; font-size:14px; display:grid; grid-template-columns: 1fr 1fr; gap: 4px 18px; }
+            .category-block { margin-bottom: 14px; }
+            .category-title { background: #e2e8f0; border: 1px solid #cbd5e1; color: #0f172a; font-weight: 700; font-size: 13px; border-radius: 6px; padding: 6px 10px; margin-bottom: 6px; }
+            table { width:100%; border-collapse:collapse; font-size:13px; table-layout: fixed; }
+            th { background:#1e293b; color:#fff; border:1px solid #334155; text-align:left; padding:8px; }
+            td { border:1px solid #cbd5e1; padding:7px 8px; vertical-align:top; overflow-wrap:anywhere; }
+            .category-total { text-align:right; margin-top: 6px; font-size: 13px; }
+            .totals { margin-top:12px; text-align:right; font-size:14px; }
+            .totals div { margin-bottom:4px; }
+            .footer-notes { margin-top: 16px; border-top: 1px dashed #94a3b8; padding-top: 12px; display:grid; grid-template-columns: 1fr; gap: 10px; font-size: 12px; }
+            .note-card { border:1px solid #cbd5e1; border-radius:8px; padding:10px; background:#fafafa; break-inside: avoid; page-break-inside: avoid; }
+            .note-title { font-weight:700; margin-bottom:5px; color:#0f172a; }
+            .note-body { white-space: pre-wrap; line-height: 1.5; color:#334155; overflow-wrap: anywhere; word-break: break-word; hyphens: auto; }
+          </style>
+        </head>
+        <body>
+          <div class="sheet">
+            <div class="head">
+              <div>
+                ${companyLogo ? `<img src="${companyLogo}" alt="" style="max-height:56px;max-width:180px;object-fit:contain;margin-bottom:8px;" />` : ''}
+                <div style="font-size:20px;font-weight:700;line-height:1.2;margin-bottom:2px;">${companyName}</div>
+                ${companyAddress ? `<div style="white-space:pre-wrap;font-size:12px;color:#334155;margin-bottom:6px;">${companyAddress}</div>` : ''}
+                <h3>${invoiceTitle}</h3>
+                <div class="invoice-code">Invoice No: ${orderNo}</div>
+              </div>
+              <div style="text-align:right; font-size:12px; color:#334155;">
+                <div><strong>Date:</strong> ${order.orderDate ? new Date(order.orderDate).toLocaleDateString() : '—'}</div>
+                <div><strong>Delivery:</strong> ${order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : '—'}</div>
+              </div>
+            </div>
+            <div class="meta">
+              <div><strong>Customer:</strong> ${order.customer?.customerName || order.customer?.businessName || ''}</div>
+              <div><strong>Sales Person:</strong> ${order.salesPerson?.name || order.salesPerson?.username || ''}</div>
+              <div><strong>Shipping Type:</strong> ${order.shippingType || '-'}</div>
+              <div><strong>Tax:</strong> ${taxDisplay}</div>
+              <div style="grid-column:1 / span 2;"><strong>Shipping Address:</strong> ${order.shippingAddress || '-'}</div>
+            </div>
+            ${categorySections}
+            <div class="totals">
+              <div><strong>Subtotal:</strong> $ ${money(order.subtotal)}</div>
+              <div><strong>Shipping:</strong> $ ${money(order.shippingCharges)}</div>
+              <div><strong>${taxLabel}:</strong> $ ${money(order.totalTax)}</div>
+              <div><strong>Grand Total:</strong> $ ${money(order.orderTotal)}</div>
+            </div>
+            <div class="footer-notes">
+              <div class="note-card">
+                <div class="note-title">Disclosure</div>
+                <div class="note-body">${footerDisclosure || '-'}</div>
+              </div>
+              <div class="note-card">
+                <div class="note-title">Terms</div>
+                <div class="note-body">${footerTerms || '-'}</div>
+              </div>
+            </div>
+          </div>
+          <script>
+            window.addEventListener('load', () => {
+              requestAnimationFrame(() => setTimeout(() => { window.focus(); window.print(); }, 100));
             });
-            setTimeout(function () { window.print(); }, 250);
           </script>
         </body>
       </html>
     `)
     win.document.close()
-    setShowPackedLabelModal(false)
+    setShowInvoicePrintModal(false)
   }
 
   if (loading) return <p>Loading order details...</p>
@@ -244,6 +514,7 @@ function OrderDetailsPage() {
             <Col md={3}><Form.Label>Delivery Date</Form.Label><Form.Control value={order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : ''} readOnly /></Col>
             <Col md={3}><Form.Label>Sales Person</Form.Label><Form.Control value={order.salesPerson?.name || order.salesPerson?.username || ''} readOnly /></Col>
             <Col md={3}><Form.Label>Customer</Form.Label><Form.Control value={order.customer?.customerName || order.customer?.businessName || ''} readOnly /></Col>
+            <Col md={3}><Form.Label>Packed Boxes</Form.Label><Form.Control value={Math.max(1, Number(order.noOfPackedBoxes) || 1)} readOnly /></Col>
             <Col md={3}><Form.Label>Terms</Form.Label><Form.Control value={order.terms || ''} readOnly /></Col>
             <Col md={3}><Form.Label>Shipping Type</Form.Label><Form.Control value={order.shippingType || ''} readOnly /></Col>
             <Col md={6}><Form.Label>Billing Address</Form.Label><Form.Control as="textarea" rows={2} value={order.billingAddress || ''} readOnly /></Col>
@@ -334,7 +605,10 @@ function OrderDetailsPage() {
               {!isSalesPerson && (
                 <>
                   <Button variant="warning" onClick={() => setShowAssignModal(true)} disabled={!canAssignDriver}>Assign Driver</Button>
-                  <Button variant="info" onClick={() => setShowPackedLabelModal(true)} disabled={!canPrintPackedLabel}>
+                  <Button variant="outline-primary" onClick={() => setShowInvoicePrintModal(true)}>
+                    Print Invoice
+                  </Button>
+                  <Button variant="info" onClick={printPackedBoxLabels} disabled={!canPrintPackedLabel}>
                     Packed Box Barcode
                   </Button>
                   <Button variant="danger" onClick={() => setShowCancelModal(true)} disabled={!canCancel}>Cancel Order</Button>
@@ -377,8 +651,23 @@ function OrderDetailsPage() {
       </Modal>
 
       <Modal show={showAssignModal} onHide={() => setShowAssignModal(false)} centered>
-        <Modal.Header closeButton><Modal.Title>Assign Driver</Modal.Title></Modal.Header>
+        <Modal.Header closeButton><Modal.Title>Assign Order</Modal.Title></Modal.Header>
         <Modal.Body>
+          <Form.Check
+            type="radio"
+            name="driver-choice"
+            label={<span className="fw-bold text-primary">Sales Person: {order?.salesPerson?.name || order?.salesPerson?.username || 'Sales Person'}</span>}
+            checked={assignChoice === 'sales_person'}
+            onChange={() => setAssignChoice('sales_person')}
+          />
+          <Form.Check
+            type="radio"
+            name="driver-choice"
+            label="Customer Pickup"
+            checked={assignChoice === 'customer'}
+            onChange={() => setAssignChoice('customer')}
+          />
+          <hr className="my-2" />
           {drivers.map((d) => (
             <Form.Check
               key={d._id}
@@ -392,9 +681,9 @@ function OrderDetailsPage() {
           <Form.Check
             type="radio"
             name="driver-choice"
-            label="Customer Pickup"
-            checked={assignChoice === 'customer_pickup'}
-            onChange={() => setAssignChoice('customer_pickup')}
+            label="UPS Driver"
+            checked={assignChoice === 'ups_driver'}
+            onChange={() => setAssignChoice('ups_driver')}
           />
           {actionMessage && <div className="text-danger small mt-2">{actionMessage}</div>}
         </Modal.Body>
@@ -404,25 +693,30 @@ function OrderDetailsPage() {
         </Modal.Footer>
       </Modal>
 
-      <Modal show={showPackedLabelModal} onHide={() => setShowPackedLabelModal(false)} centered>
-        <Modal.Header closeButton><Modal.Title>Packed Box Barcode</Modal.Title></Modal.Header>
+      <Modal show={showInvoicePrintModal} onHide={() => setShowInvoicePrintModal(false)} centered>
+        <Modal.Header closeButton><Modal.Title>Print Invoice</Modal.Title></Modal.Header>
         <Modal.Body>
-          <Form.Group>
-            <Form.Label>Total Boxes</Form.Label>
-            <Form.Control
-              type="number"
-              min={1}
-              value={totalBoxesInput}
-              onChange={(e) => setTotalBoxesInput(e.target.value)}
-            />
-          </Form.Group>
-          <div className="small text-muted mt-2">
-            Label includes Order No, barcode (OrderNo/BoxNo), current/total box number, customer ID and sales person.
-          </div>
+          <div className="small mb-2">Choose invoice template</div>
+          <Form.Check
+            type="radio"
+            id="invoice-template-default"
+            name="invoice-template"
+            label="Default Template"
+            checked={invoiceTemplate === 'default'}
+            onChange={() => setInvoiceTemplate('default')}
+          />
+          <Form.Check
+            type="radio"
+            id="invoice-template-sales-quote"
+            name="invoice-template"
+            label="Sales Quote Invoice"
+            checked={invoiceTemplate === 'sales_quote'}
+            onChange={() => setInvoiceTemplate('sales_quote')}
+          />
         </Modal.Body>
         <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowPackedLabelModal(false)}>Close</Button>
-          <Button variant="primary" onClick={printPackedBoxLabels}>Print 4x6</Button>
+          <Button variant="secondary" onClick={() => setShowInvoicePrintModal(false)}>Close</Button>
+          <Button variant="primary" onClick={printInvoice}>Print</Button>
         </Modal.Footer>
       </Modal>
 

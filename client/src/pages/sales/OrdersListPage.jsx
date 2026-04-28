@@ -39,6 +39,10 @@ function toLabel(value) {
     .join(' ')
 }
 
+function money(v) {
+  return (Number(v) || 0).toFixed(2)
+}
+
 function ChipMultiSelect({
   label,
   options,
@@ -184,9 +188,10 @@ function OrdersListPage() {
   const [showAssignModal, setShowAssignModal] = useState(false)
   const [activeOrder, setActiveOrder] = useState(null)
   const [drivers, setDrivers] = useState([])
-  const [assignChoice, setAssignChoice] = useState('')
-  const [printTemplate, setPrintTemplate] = useState('standard')
+  const [assignChoice, setAssignChoice] = useState('customer')
+  const [printTemplate, setPrintTemplate] = useState('default')
   const [actionMessage, setActionMessage] = useState('')
+  const [companySettings, setCompanySettings] = useState(null)
 
   useEffect(() => {
     api
@@ -209,6 +214,16 @@ function OrdersListPage() {
       })
       .catch(() => {})
   }, [isSalesManager])
+
+  useEffect(() => {
+    api
+      .get('/api/company-settings')
+      .then(async (res) => {
+        const data = await res.json().catch(() => null)
+        if (res.ok && data) setCompanySettings(data)
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (!isSalesManager) return
@@ -355,43 +370,201 @@ function OrdersListPage() {
 
   const openPrint = (order) => {
     setActiveOrder(order)
-    setPrintTemplate('standard')
+    setPrintTemplate('default')
     setShowPrintModal(true)
+  }
+
+  const printInvoiceFromList = () => {
+    if (!activeOrder) return
+    const orderNo = String(activeOrder.orderNumber || '')
+    const invoiceTitle = printTemplate === 'sales_quote' ? 'Sales Quote Invoice' : 'Invoice'
+    const companyName = String(companySettings?.companyName || 'Your Company').trim()
+    const companyLogo = companySettings?.logoFileName
+      ? `/api/uploads/company/${companySettings.logoFileName}`
+      : ''
+    const companyAddress = [
+      companySettings?.addressLine1,
+      companySettings?.addressLine2,
+      [companySettings?.city, companySettings?.state, companySettings?.zipCode].filter(Boolean).join(', '),
+    ].filter(Boolean).join('\n')
+    const taxLabel = String(companySettings?.salesTaxLabel || 'Sales Tax').trim() || 'Sales Tax'
+    const footerDisclosure = String(companySettings?.invoiceDisclosure || '').trim()
+    const footerTerms = String(companySettings?.invoiceTerms || activeOrder.terms || '').trim()
+
+    const groupedByCategory = (activeOrder.lineItems || []).reduce((acc, item) => {
+      const category = String(
+        item?.baseCategory || item?.category || item?.categoryName || item?.productCategory || 'Uncategorized',
+      ).trim() || 'Uncategorized'
+      if (!acc[category]) acc[category] = []
+      acc[category].push(item)
+      return acc
+    }, {})
+    const categorySections = Object.entries(groupedByCategory)
+      .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+      .map(([category, items]) => {
+        const rows = [...items]
+          .sort((a, b) => {
+            const nameA = String(a?.productName || '').trim()
+            const nameB = String(b?.productName || '').trim()
+            const byName = nameA.localeCompare(nameB, undefined, { sensitivity: 'base' })
+            if (byName !== 0) return byName
+            const idA = String(a?.productId || '').trim()
+            const idB = String(b?.productId || '').trim()
+            return idA.localeCompare(idB, undefined, { sensitivity: 'base' })
+          })
+          .map(
+            (l) => `
+              <tr>
+                <td>${l.productId || ''}</td>
+                <td>${l.productName || ''}</td>
+                <td>${l.unitType || ''}</td>
+                <td style="text-align:right;">${Number(l.qty || 0)}</td>
+                <td style="text-align:right;">${money(l.srp)}</td>
+                <td style="text-align:right;">${money(l.unitPrice)}</td>
+                <td style="text-align:right;">${money(l.netPrice)}</td>
+              </tr>
+            `,
+          )
+          .join('')
+        const categoryTotal = items.reduce((sum, l) => sum + (Number(l.netPrice) || 0), 0)
+        return `
+          <div class="category-block">
+            <div class="category-title">${category}</div>
+            <table>
+              <colgroup>
+                <col style="width: 12%;" />
+                <col style="width: 32%;" />
+                <col style="width: 10%;" />
+                <col style="width: 8%;" />
+                <col style="width: 12%;" />
+                <col style="width: 13%;" />
+                <col style="width: 13%;" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Product</th>
+                  <th>Unit</th>
+                  <th style="text-align:right;">Qty</th>
+                  <th style="text-align:right;">SRP</th>
+                  <th style="text-align:right;">Unit Price</th>
+                  <th style="text-align:right;">Net Price</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+            <div class="category-total"><strong>${category} Subtotal:</strong> $ ${money(categoryTotal)}</div>
+          </div>
+        `
+      })
+      .join('')
+
+    const w = window.open('', '_blank', 'width=1000,height=860')
+    if (!w) return
+    w.document.write(`
+      <html>
+        <head>
+          <title>${invoiceTitle} - ${orderNo}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 18px; color: #0f172a; background: #fff; }
+            .sheet { border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px; }
+            .head { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:8px; border-bottom: 2px solid #1e293b; padding-bottom: 10px; }
+            .head h3 { margin:0; color: #1e293b; }
+            .invoice-code { font-size: 13px; color: #334155; margin-top: 6px; }
+            .meta { border:1px solid #cbd5e1; background:#f8fafc; border-radius:8px; padding:10px 12px; margin-bottom:14px; line-height:1.45; font-size:14px; display:grid; grid-template-columns: 1fr 1fr; gap: 4px 18px; }
+            .category-block { margin-bottom: 14px; }
+            .category-title { background: #e2e8f0; border: 1px solid #cbd5e1; color: #0f172a; font-weight: 700; font-size: 13px; border-radius: 6px; padding: 6px 10px; margin-bottom: 6px; }
+            table { width:100%; border-collapse:collapse; font-size:13px; table-layout: fixed; }
+            th { background:#1e293b; color:#fff; border:1px solid #334155; text-align:left; padding:8px; }
+            td { border:1px solid #cbd5e1; padding:7px 8px; vertical-align:top; overflow-wrap:anywhere; }
+            .category-total { text-align:right; margin-top: 6px; font-size: 13px; }
+            .totals { margin-top:12px; text-align:right; font-size:14px; }
+            .totals div { margin-bottom:4px; }
+            .footer-notes { margin-top: 16px; border-top: 1px dashed #94a3b8; padding-top: 12px; display:grid; grid-template-columns: 1fr; gap: 10px; font-size: 12px; }
+            .note-card { border:1px solid #cbd5e1; border-radius:8px; padding:10px; background:#fafafa; break-inside: avoid; page-break-inside: avoid; }
+            .note-title { font-weight:700; margin-bottom:5px; color:#0f172a; }
+            .note-body { white-space: pre-wrap; line-height: 1.5; color:#334155; overflow-wrap: anywhere; word-break: break-word; hyphens: auto; }
+          </style>
+        </head>
+        <body>
+          <div class="sheet">
+            <div class="head">
+              <div>
+                ${companyLogo ? `<img src="${companyLogo}" alt="" style="max-height:56px;max-width:180px;object-fit:contain;margin-bottom:8px;" />` : ''}
+                <div style="font-size:20px;font-weight:700;line-height:1.2;margin-bottom:2px;">${companyName}</div>
+                ${companyAddress ? `<div style="white-space:pre-wrap;font-size:12px;color:#334155;margin-bottom:6px;">${companyAddress}</div>` : ''}
+                <h3>${invoiceTitle}</h3>
+                <div class="invoice-code">Invoice No: ${orderNo}</div>
+              </div>
+              <div style="text-align:right; font-size:12px; color:#334155;">
+                <div><strong>Date:</strong> ${activeOrder.orderDate ? new Date(activeOrder.orderDate).toLocaleDateString() : '—'}</div>
+                <div><strong>Delivery:</strong> ${activeOrder.deliveryDate ? new Date(activeOrder.deliveryDate).toLocaleDateString() : '—'}</div>
+              </div>
+            </div>
+            <div class="meta">
+              <div><strong>Customer:</strong> ${activeOrder.customer?.customerName || activeOrder.customer?.businessName || ''}</div>
+              <div><strong>Sales Person:</strong> ${activeOrder.salesPerson?.name || activeOrder.salesPerson?.username || ''}</div>
+              <div><strong>Shipping Type:</strong> ${activeOrder.shippingType || '-'}</div>
+              <div><strong>Tax:</strong> ${taxLabel}</div>
+              <div style="grid-column:1 / span 2;"><strong>Shipping Address:</strong> ${activeOrder.shippingAddress || '-'}</div>
+            </div>
+            ${categorySections}
+            <div class="totals">
+              <div><strong>Subtotal:</strong> $ ${money(activeOrder.subtotal)}</div>
+              <div><strong>Shipping:</strong> $ ${money(activeOrder.shippingCharges)}</div>
+              <div><strong>${taxLabel}:</strong> $ ${money(activeOrder.totalTax)}</div>
+              <div><strong>Grand Total:</strong> $ ${money(activeOrder.orderTotal)}</div>
+            </div>
+            <div class="footer-notes">
+              <div class="note-card">
+                <div class="note-title">Disclosure</div>
+                <div class="note-body">${footerDisclosure || '-'}</div>
+              </div>
+              <div class="note-card">
+                <div class="note-title">Terms</div>
+                <div class="note-body">${footerTerms || '-'}</div>
+              </div>
+            </div>
+          </div>
+          <script>
+            window.addEventListener('load', () => {
+              requestAnimationFrame(() => setTimeout(() => { window.focus(); window.print(); }, 100));
+            });
+          </script>
+        </body>
+      </html>
+    `)
+    w.document.close()
+    setShowPrintModal(false)
   }
 
   const openAssignDriver = (order) => {
     setActiveOrder(order)
-    setAssignChoice(order.assignedDriver?._id || '')
+    setAssignChoice(order.assignedDriver?._id || 'customer')
     setShowAssignModal(true)
   }
 
   const performAssignDriver = async () => {
     if (!activeOrder) return
     setActionMessage('')
-    if (assignChoice === 'customer_pickup') {
-      const res = await api.put(`/api/sales/orders/${activeOrder._id}`, {
-        shippingType: 'Customer Pickup',
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setActionMessage(data.message || 'Failed to set Customer Pickup.')
-        return
-      }
-      setRows((prev) => prev.map((row) => (row._id === data._id ? data : row)))
-      setShowAssignModal(false)
-      return
-    }
     if (!assignChoice) {
-      setActionMessage('Select a driver or Customer Pickup.')
+      setActionMessage('Select assignment option.')
       return
     }
-    const res = await api.patch(`/api/sales/orders/${activeOrder._id}/workflow`, {
-      action: 'assign_driver',
-      driverId: assignChoice,
-    })
+    const isCustomer = assignChoice === 'customer'
+    const isSalesPerson = assignChoice === 'sales_person'
+    const isUpsDriver = assignChoice === 'ups_driver'
+    const payload = isCustomer
+      ? { action: 'assign_driver', assignTarget: 'customer' }
+      : isSalesPerson
+        ? { action: 'assign_driver', assignTarget: 'sales_person' }
+        : isUpsDriver
+          ? { action: 'assign_driver', assignTarget: 'ups_driver' }
+          : { action: 'assign_driver', assignTarget: 'driver', driverId: assignChoice }
+    const res = await api.patch(`/api/sales/orders/${activeOrder._id}/workflow`, payload)
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
-      setActionMessage(data.message || 'Failed to assign driver.')
+      setActionMessage(data.message || 'Failed to assign order.')
       return
     }
     setRows((prev) => prev.map((row) => (row._id === data._id ? data : row)))
@@ -641,8 +814,9 @@ function OrdersListPage() {
                   <th>Customer</th>
                   <th className="text-end">Payable ($)</th>
                   <th className="text-end">Products</th>
+                  {!isSalesManager && <th>Barcode</th>}
+                  <th className="text-end">Packed Boxes</th>
                   {isSalesManager && <th className="text-end">Credit Memo</th>}
-                  {isSalesManager && <th className="text-end">Packed Boxes</th>}
                   <th>Shipping Type</th>
                   {isSalesManager && <th>Sales Remark</th>}
                   {isSalesManager && <th>Driver Remarks</th>}
@@ -654,6 +828,12 @@ function OrdersListPage() {
               <tbody>
                 {pagedRows.map((o) => {
                   const b = badge(o.status)
+                  const barcodes = [...new Set(
+                    (o.lineItems || [])
+                      .map((li) => String(li?.barcode || '').trim())
+                      .filter(Boolean),
+                  )]
+                  const barcodeLabel = barcodes.length > 1 ? `${barcodes[0]} +${barcodes.length - 1}` : (barcodes[0] || '—')
                   return (
                     <tr key={o._id} className={getShippingRowClass(o.shippingType)}>
                       {!isSalesManager && (
@@ -709,7 +889,8 @@ function OrdersListPage() {
                       <td>{o.customer?.customerName || o.customer?.businessName || '—'}</td>
                       <td className="text-end">{Number(o.orderTotal || o.subtotal || 0).toFixed(2)}</td>
                       <td className="text-end">{Array.isArray(o.lineItems) ? o.lineItems.length : 0}</td>
-                      {isSalesManager && <td className="text-end">0</td>}
+                      {!isSalesManager && <td>{barcodeLabel}</td>}
+                      <td className="text-end">{Math.max(1, Number(o.noOfPackedBoxes) || 1)}</td>
                       {isSalesManager && <td className="text-end">0</td>}
                       <td>{o.shippingType || '—'}</td>
                       {isSalesManager && <td>{o.salesPersonRemark || ''}</td>}
@@ -722,7 +903,7 @@ function OrdersListPage() {
                 })}
                 {pagedRows.length === 0 && (
                   <tr>
-                    <td colSpan={isSalesManager ? 16 : 10} className="text-center text-muted py-4">No orders found.</td>
+                    <td colSpan={isSalesManager ? 16 : 12} className="text-center text-muted py-4">No orders found.</td>
                   </tr>
                 )}
               </tbody>
@@ -738,20 +919,20 @@ function OrdersListPage() {
             {' '} of {filteredRows.length}
           </div>
           <div className="d-flex align-items-center gap-2">
-            <Form.Select
-              size="sm"
-              style={{ width: 90 }}
-              value={pageSize}
-              onChange={(e) => {
-                setPageSize(e.target.value)
-                setCurrentPage(1)
-              }}
-            >
-              <option value="10">10</option>
-              <option value="50">50</option>
-              <option value="100">100</option>
-              <option value="all">All</option>
-            </Form.Select>
+            <div className="small text-muted">Rows:</div>
+            {['10', '50', '100', 'all'].map((size) => (
+              <button
+                key={size}
+                type="button"
+                className={`btn btn-sm ${pageSize === size ? 'btn-primary' : 'btn-outline-secondary'}`}
+                onClick={() => {
+                  setPageSize(size)
+                  setCurrentPage(1)
+                }}
+              >
+                {size === 'all' ? 'All' : size}
+              </button>
+            ))}
             {pageSize !== 'all' && (
               <div className="d-flex align-items-center gap-1">
                 <button type="button" className="btn btn-sm btn-outline-secondary" disabled={currentPage <= 1} onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}>
@@ -815,37 +996,26 @@ function OrdersListPage() {
           <div className="small mb-2">Choose invoice template</div>
           <Form.Check
             type="radio"
-            id="tpl-standard"
+            id="tpl-default"
             name="print-template"
-            label="Standard invoice"
-            checked={printTemplate === 'standard'}
-            onChange={() => setPrintTemplate('standard')}
+            label="Default Template"
+            checked={printTemplate === 'default'}
+            onChange={() => setPrintTemplate('default')}
           />
           <Form.Check
             type="radio"
-            id="tpl-compact"
+            id="tpl-sales-quote"
             name="print-template"
-            label="Compact invoice"
-            checked={printTemplate === 'compact'}
-            onChange={() => setPrintTemplate('compact')}
-          />
-          <Form.Check
-            type="radio"
-            id="tpl-detailed"
-            name="print-template"
-            label="Detailed invoice"
-            checked={printTemplate === 'detailed'}
-            onChange={() => setPrintTemplate('detailed')}
+            label="Sales Quote Invoice"
+            checked={printTemplate === 'sales_quote'}
+            onChange={() => setPrintTemplate('sales_quote')}
           />
         </Modal.Body>
         <Modal.Footer>
           <Button variant="secondary" onClick={() => setShowPrintModal(false)}>Close</Button>
           <Button
             variant="primary"
-            onClick={() => {
-              window.print()
-              setShowPrintModal(false)
-            }}
+            onClick={printInvoiceFromList}
           >
             Print
           </Button>
@@ -854,10 +1024,26 @@ function OrdersListPage() {
 
       <Modal show={showAssignModal} onHide={() => setShowAssignModal(false)} centered>
         <Modal.Header closeButton>
-          <Modal.Title>Assign Driver</Modal.Title>
+          <Modal.Title>Assign Order</Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          <div className="small mb-2">Select active driver or customer pickup</div>
+          <Form.Check
+            type="radio"
+            id="assign-sales-person"
+            name="assign-driver"
+            label={<span className="fw-bold text-primary">Sales Person: {activeOrder?.salesPerson?.name || activeOrder?.salesPerson?.username || 'Sales Person'}</span>}
+            checked={assignChoice === 'sales_person'}
+            onChange={() => setAssignChoice('sales_person')}
+          />
+          <Form.Check
+            type="radio"
+            id="assign-customer-pickup"
+            name="assign-driver"
+            label="Customer Pickup"
+            checked={assignChoice === 'customer'}
+            onChange={() => setAssignChoice('customer')}
+          />
+          <hr className="my-2" />
           {drivers.map((d) => (
             <Form.Check
               key={d._id}
@@ -871,11 +1057,11 @@ function OrdersListPage() {
           ))}
           <Form.Check
             type="radio"
-            id="drv-customer-pickup"
+            id="assign-ups-driver"
             name="assign-driver"
-            label="Customer Pickup"
-            checked={assignChoice === 'customer_pickup'}
-            onChange={() => setAssignChoice('customer_pickup')}
+            label="UPS Driver"
+            checked={assignChoice === 'ups_driver'}
+            onChange={() => setAssignChoice('ups_driver')}
           />
           {actionMessage && <div className="text-danger small mt-2">{actionMessage}</div>}
         </Modal.Body>

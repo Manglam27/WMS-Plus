@@ -5,6 +5,7 @@ import SalesCreditMemo from '../models/SalesCreditMemo.js'
 import SalesPayment from '../models/SalesPayment.js'
 import PriceLevelProductPrice from '../models/PriceLevelProductPrice.js'
 import WarehouseTask from '../models/WarehouseTask.js'
+import Product from '../models/Product.js'
 import User from '../models/User.js'
 import { protect, requireRole } from '../middleware/auth.js'
 
@@ -14,6 +15,147 @@ const orderWorkflowRoles = ['sales_person', 'sales_manager', 'admin', 'order_man
 const canManageAllSalesData = (user) => user?.role === 'admin' || user?.role === 'sales_manager'
 const canManageOrderWorkflow = (user) => ['admin', 'sales_manager', 'order_manager'].includes(user?.role)
 const getActorName = (user) => String(user?.name || user?.username || user?.role || 'User')
+
+async function enrichOrderWithProductData(orderDoc) {
+  if (!orderDoc || !Array.isArray(orderDoc.lineItems) || orderDoc.lineItems.length === 0) return orderDoc
+  const productIds = [...new Set(
+    orderDoc.lineItems
+      .map((li) => String(li?.productId || '').trim())
+      .filter(Boolean),
+  )]
+  if (productIds.length === 0) return orderDoc
+  const products = await Product.find({ productId: { $in: productIds } })
+    .select('productId currentStock imageFileName category subcategory')
+    .lean()
+  const productMap = new Map(products.map((p) => [String(p.productId || '').trim(), p]))
+  orderDoc.lineItems = orderDoc.lineItems.map((line) => {
+    const product = productMap.get(String(line?.productId || '').trim())
+    const imageUrl = product?.imageFileName ? `/api/uploads/products/${product.imageFileName}` : ''
+    return {
+      ...line,
+      currentStock: product ? Number(product.currentStock || 0) : (line?.currentStock ?? null),
+      imageUrl: line?.imageUrl || imageUrl,
+      baseCategory: String(line?.baseCategory || product?.category || '').trim(),
+      subCategory: String(line?.subCategory || product?.subcategory || '').trim(),
+    }
+  })
+  return orderDoc
+}
+
+async function recordProductsAddedToOrderHistory(orderNumber, lineItems, user) {
+  const rows = Array.isArray(lineItems) ? lineItems : []
+  if (!orderNumber || rows.length === 0) return
+  const productIds = [...new Set(rows.map((li) => String(li?.productId || '').trim()).filter(Boolean))]
+  if (productIds.length === 0) return
+  const products = await Product.find({ productId: { $in: productIds } })
+    .select('productId currentStock packings.unitType packings.qty packings.isDefault')
+    .lean()
+  const productMap = new Map(products.map((p) => [String(p.productId || '').trim(), p]))
+  const actor = getActorName(user)
+  const ops = rows
+    .map((li) => {
+      const productId = String(li?.productId || '').trim()
+      const product = productMap.get(productId)
+      if (!productId || !product) return null
+      const qty = Math.max(0, Number(li?.qty) || 0)
+      const unitType = String(li?.unitType || 'Piece').trim() || 'Piece'
+      const stock = Number(product.currentStock || 0)
+      return {
+        updateOne: {
+          filter: { productId },
+          update: {
+            $push: {
+              stockHistory: {
+                $each: [{
+                  at: new Date(),
+                  oldStock: stock,
+                  delta: 0,
+                  newStock: stock,
+                  referenceId: orderNumber,
+                  userName: actor,
+                  remark: `Added to order ${orderNumber} (${qty} ${unitType})`,
+                }],
+                $position: 0,
+              },
+            },
+          },
+        },
+      }
+    })
+    .filter(Boolean)
+  if (ops.length > 0) {
+    await Product.bulkWrite(ops)
+  }
+}
+
+async function deductPackedStockAndWriteHistory(orderDoc, user) {
+  const rows = Array.isArray(orderDoc?.lineItems) ? orderDoc.lineItems : []
+  if (!orderDoc?.orderNumber || rows.length === 0) return
+  const isAddOnPacking = String(orderDoc?.status || '') === 'add-on'
+  const byProduct = new Map()
+  rows.forEach((li) => {
+    if (isAddOnPacking && li?.isAddedLater !== true) return
+    const productId = String(li?.productId || '').trim()
+    if (!productId) return
+    const packedQty = Math.max(0, Number(li?.packedQty) || 0)
+    const alreadyDeducted = Math.max(0, Number(li?.packedStockDeducted) || 0)
+    const delta = Math.max(0, packedQty - alreadyDeducted)
+    if (delta <= 0) return
+    byProduct.set(productId, (byProduct.get(productId) || 0) + delta)
+  })
+  if (byProduct.size === 0) return
+
+  const productIds = [...byProduct.keys()]
+  const products = await Product.find({ productId: { $in: productIds } })
+    .select('productId currentStock')
+    .lean()
+  const productMap = new Map(products.map((p) => [String(p.productId || '').trim(), p]))
+  const actor = getActorName(user)
+
+  const ops = productIds
+    .map((productId) => {
+      const product = productMap.get(productId)
+      if (!product) return null
+      const oldStock = Number(product.currentStock || 0)
+      const delta = Math.max(0, Number(byProduct.get(productId) || 0))
+      const newStock = oldStock - delta
+      const packings = Array.isArray(product.packings) ? product.packings : []
+      const defaultPacking =
+        packings.find((pk) => pk?.isDefault === true) ||
+        packings.find((pk) => String(pk?.unitType || '') === 'Piece') ||
+        packings[0] ||
+        null
+      const defaultUnitType = String(defaultPacking?.unitType || 'Piece')
+      const defaultUnitQty = Math.max(1, Number(defaultPacking?.qty) || 1)
+      return {
+        updateOne: {
+          filter: { productId },
+          update: {
+            $set: { currentStock: newStock },
+            $push: {
+              stockHistory: {
+                $each: [{
+                  at: new Date(),
+                  oldStock,
+                  delta: -delta,
+                  newStock,
+                  defaultUnitType,
+                  defaultUnitQty,
+                  referenceId: String(orderDoc.orderNumber),
+                  userName: actor,
+                  remark: `Packed in order ${orderDoc.orderNumber} by ${actor} (${delta} units)`,
+                }],
+                $position: 0,
+              },
+            },
+          },
+        },
+      }
+    })
+    .filter(Boolean)
+
+  if (ops.length > 0) await Product.bulkWrite(ops)
+}
 
 // Address helper (server-side proxy to avoid browser CORS)
 router.get('/address/search', protect, requireRole(...salesRoles), async (req, res) => {
@@ -275,6 +417,10 @@ router.get('/customers', protect, requireRole(...salesRoles), async (req, res) =
     const list = await Customer.find(q).populate('salesPerson', 'name username').sort({ createdAt: -1 }).lean()
     res.json(list)
   } catch (e) {
+    const msg = String(e?.message || '')
+    if (msg === 'Current stock of the product is less then packed qty.') {
+      return res.status(400).json({ message: msg })
+    }
     res.status(500).json({ message: 'Server error' })
   }
 })
@@ -303,6 +449,28 @@ router.get('/price-level/:customerId/prices', protect, requireRole(...salesRoles
       .select('productId unitType unitPrice')
       .lean()
     return res.json({ priceLevelCode, items })
+  } catch (e) {
+    return res.status(500).json({ message: 'Server error' })
+  }
+})
+
+router.get('/barcode-lookup', protect, requireRole('scanner_packer', 'admin', 'order_manager', 'sales_manager'), async (req, res) => {
+  try {
+    const value = String(req.query.value || '').trim()
+    if (!value) return res.status(400).json({ message: 'Barcode is required.' })
+    const product = await Product.findOne({ 'packings.barcode': value, isActive: { $ne: false } })
+      .select('productId productName packings currentStock')
+      .lean()
+    if (!product) return res.json({ exists: false })
+    const packing = (product.packings || []).find((pk) => String(pk?.barcode || '').trim() === value)
+    return res.json({
+      exists: true,
+      barcode: value,
+      productId: product.productId || '',
+      productName: product.productName || '',
+      unitType: packing?.unitType || '',
+      currentStock: Number(product.currentStock || 0),
+    })
   } catch (e) {
     return res.status(500).json({ message: 'Server error' })
   }
@@ -365,6 +533,9 @@ router.post('/orders', protect, requireRole(...salesRoles), async (req, res) => 
         productId: String(row.productId || '').trim(),
         productName: String(row.productName || '').trim() || 'Product',
         unitType: row.unitType || 'Piece',
+        packedStockDeducted: 0,
+        baseCategory: String(row.baseCategory || row.category || row.categoryName || '').trim(),
+        subCategory: String(row.subCategory || row.subcategory || '').trim(),
         qtyPerUnit,
         qty,
         pieces,
@@ -449,7 +620,15 @@ router.post('/orders', protect, requireRole(...salesRoles), async (req, res) => 
         }
       }
     }
-    res.status(201).json(doc)
+    const created = await SalesOrder.findById(doc._id)
+      .populate('customer')
+      .populate('salesPerson', 'name username')
+      .populate('assignedPicker', 'name username')
+      .populate('assignedPacker', 'name username')
+      .populate('assignedDriver', 'name username')
+      .lean()
+    await enrichOrderWithProductData(created)
+    res.status(201).json(created)
   } catch (e) {
     console.error('Create sales order error:', e)
     res.status(500).json({ message: 'Server error' })
@@ -472,7 +651,28 @@ router.get('/orders', protect, requireRole(...orderWorkflowRoles), async (req, r
       .populate('assignedDriver', 'name username')
       .sort({ createdAt: -1 })
       .lean()
-    res.json(list)
+    const allProductIds = [...new Set(
+      list.flatMap((o) => (Array.isArray(o?.lineItems) ? o.lineItems : []))
+        .map((li) => String(li?.productId || '').trim())
+        .filter(Boolean),
+    )]
+    if (allProductIds.length === 0) return res.json(list)
+    const products = await Product.find({ productId: { $in: allProductIds } })
+      .select('productId category subcategory')
+      .lean()
+    const productMap = new Map(products.map((p) => [String(p.productId || '').trim(), p]))
+    const enriched = list.map((o) => ({
+      ...o,
+      lineItems: (o.lineItems || []).map((li) => {
+        const product = productMap.get(String(li?.productId || '').trim())
+        return {
+          ...li,
+          baseCategory: String(li?.baseCategory || product?.category || '').trim(),
+          subCategory: String(li?.subCategory || product?.subcategory || '').trim(),
+        }
+      }),
+    }))
+    res.json(enriched)
   } catch (e) {
     res.status(500).json({ message: 'Server error' })
   }
@@ -492,6 +692,7 @@ router.get('/orders/:id', protect, requireRole(...orderWorkflowRoles), async (re
       .populate('assignedDriver', 'name username')
       .lean()
     if (!doc) return res.status(404).json({ message: 'Order not found' })
+    await enrichOrderWithProductData(doc)
     res.json(doc)
   } catch (e) {
     res.status(500).json({ message: 'Server error' })
@@ -558,17 +759,22 @@ router.put('/orders/:id', protect, requireRole(...orderWorkflowRoles), async (re
           qty: Number(x.qty) || 0,
           unitPrice: Number(x.unitPrice) || 0,
           discountAmount: Number(x.discountAmount) || 0,
+          packedStockDeducted: Math.max(0, Number(x.packedStockDeducted) || 0),
         }))
       : []
 
     const previousByKey = new Map(
       previousLineItems.map((x) => [`${x.productId}__${x.unitType}`, x]),
     )
-    if (lineItems != null) {
+      if (lineItems != null) {
       const items = Array.isArray(lineItems) ? lineItems : []
-      const allowAddedLaterBubble = role === 'sales_person' && !['processed', 'packed'].includes(doc.status)
+      const allowAddedLaterBubble =
+        ['sales_person', 'sales_manager', 'admin', 'order_manager'].includes(role) &&
+        ['processed', 'packed', 'add-on-packed', 'add-on'].includes(doc.status)
       let subtotal = 0
       doc.lineItems = items.map((row) => {
+        const rowKey = `${String(row.productId || '').trim()}__${String(row.unitType || '').trim() || 'Piece'}`
+        const prevItem = previousByKey.get(rowKey)
         const qty = Math.max(0, Number(row.qty) || 0)
         const qtyPerUnit = Math.max(1, Number(row.qtyPerUnit) || 1)
         const pieces = Math.max(0, qty * qtyPerUnit)
@@ -583,9 +789,15 @@ router.put('/orders/:id', protect, requireRole(...orderWorkflowRoles), async (re
           productId: String(row.productId || '').trim(),
           productName: String(row.productName || '').trim() || 'Product',
           unitType: row.unitType || 'Piece',
+          packedStockDeducted: Math.max(
+            0,
+            Number(row.packedStockDeducted ?? prevItem?.packedStockDeducted ?? 0) || 0,
+          ),
+          baseCategory: String(row.baseCategory || row.category || row.categoryName || '').trim(),
+          subCategory: String(row.subCategory || row.subcategory || '').trim(),
           qtyPerUnit,
           qty,
-          packedQty: Math.max(0, Number(row.packedQty ?? row.qty) || 0),
+          packedQty: Math.max(0, Number(row.packedQty ?? 0) || 0),
           pieces,
           barcode: String(row.barcode || '').trim().slice(0, 100),
           itemScanTime: row.itemScanTime ? new Date(row.itemScanTime) : undefined,
@@ -598,6 +810,7 @@ router.put('/orders/:id', protect, requireRole(...orderWorkflowRoles), async (re
           isExchange: !!row.isExchange,
           isTaxable: row.isTaxable !== false,
           isFreeItem: !!row.isFreeItem,
+          manualEntry: !!row.manualEntry,
           isAddedLater: !!row.isAddedLater,
         }
       })
@@ -652,6 +865,12 @@ router.put('/orders/:id', protect, requireRole(...orderWorkflowRoles), async (re
           })
         }
         if (Math.abs(prevItem.qty - nextItem.qty) > 0.0001) {
+          if (allowAddedLaterBubble && nextItem.qty > prevItem.qty) {
+            const targetLine = doc.lineItems.find(
+              (li) => `${String(li.productId || '').trim()}__${String(li.unitType || '').trim() || 'Piece'}` === key,
+            )
+            if (targetLine) targetLine.isAddedLater = true
+          }
           doc.logs.push({
             action: `Qty updated: ${nextItem.productId} ${prevItem.qty} -> ${nextItem.qty}`,
             byUserId: req.user._id,
@@ -732,7 +951,11 @@ router.put('/orders/:id', protect, requireRole(...orderWorkflowRoles), async (re
         at: new Date(),
       })
     }
-    if (status === 'cancelled' && doc.status === 'new' && ['sales_manager', 'admin'].includes(req.user.role)) {
+    if (
+      status === 'cancelled' &&
+      ['new', 'processed', 'add-on', 'packed', 'add-on-packed', 'ready-to-ship'].includes(doc.status) &&
+      ['sales_manager', 'admin'].includes(req.user.role)
+    ) {
       const cancelRemark = String(req.body?.cancelRemark || req.body?.cancellationRemark || '').trim()
       if (!cancelRemark) {
         return res.status(400).json({ message: 'Cancellation remark is required.' })
@@ -748,7 +971,6 @@ router.put('/orders/:id', protect, requireRole(...orderWorkflowRoles), async (re
       })
     }
     await doc.save()
-
     if (persistPriceLevelOnSubmit === true && Array.isArray(doc.lineItems) && doc.lineItems.length > 0) {
       const customer = await Customer.findById(doc.customer).select('priceLevelCode').lean()
       const priceLevelCode = String(customer?.priceLevelCode || '').trim()
@@ -767,6 +989,7 @@ router.put('/orders/:id', protect, requireRole(...orderWorkflowRoles), async (re
       }
     }
     const updated = await SalesOrder.findById(doc._id).populate('customer').lean()
+    await enrichOrderWithProductData(updated)
     res.json(updated)
   } catch (e) {
     console.error('Update sales order error:', e)
@@ -784,27 +1007,66 @@ router.patch('/orders/:id/packing', protect, requireRole('scanner_packer', 'admi
       return res.status(400).json({ message: 'Packing update is not allowed for this order status.' })
     }
     const packedItems = Array.isArray(req.body?.packedItems) ? req.body.packedItems : []
+    const silentLog = req.body?.silentLog === true
+    const lineItems = Array.isArray(doc.lineItems) ? doc.lineItems : []
+    const productIds = [...new Set(
+      lineItems
+        .map((li) => String(li?.productId || '').trim())
+        .filter(Boolean),
+    )]
+    const products = productIds.length > 0
+      ? await Product.find({ productId: { $in: productIds } }).select('productId currentStock').lean()
+      : []
+    const stockMap = new Map(products.map((p) => [String(p.productId || '').trim(), Math.max(0, Number(p.currentStock) || 0)]))
     const packedMap = new Map(
       packedItems.map((x) => [
         `${String(x.productId || '').trim()}__${String(x.unitType || '').trim() || 'Piece'}`,
-        Math.max(0, Number(x.packedQty) || 0),
+        {
+          packedQty: Math.max(0, Math.trunc(Number(x.packedQty) || 0)),
+          barcode: String(x.barcode || '').trim().slice(0, 100),
+          manualEntry: x.manualEntry === true,
+        },
       ]),
     )
+    const packedBoxesRaw = Number(req.body?.noOfPackedBoxes)
+    if (Number.isFinite(packedBoxesRaw) && packedBoxesRaw > 0) {
+      doc.noOfPackedBoxes = Math.max(1, Math.round(packedBoxesRaw))
+    }
     doc.lineItems = (doc.lineItems || []).map((li) => {
       const key = `${String(li.productId || '').trim()}__${String(li.unitType || '').trim() || 'Piece'}`
       if (!packedMap.has(key)) return li
-      const nextPacked = Math.max(0, packedMap.get(key))
+      const orderedQty = Math.max(0, Math.trunc(Number(li.qty) || 0))
+      const packedEntry = packedMap.get(key) || {}
+      const nextPacked = Math.max(
+        0,
+        Math.min(orderedQty, Math.trunc(Number(packedEntry.packedQty) || 0)),
+      )
+      const currentStock = Math.max(
+        0,
+        Number(stockMap.get(String(li.productId || '').trim())) || 0,
+      )
+      if (nextPacked > currentStock) {
+        throw new Error('Current stock of the product is less then packed qty.')
+      }
       const changed = Math.abs((Number(li.packedQty) || 0) - nextPacked) > 0.0001
       li.packedQty = nextPacked
+      if (packedEntry.barcode) {
+        li.barcode = packedEntry.barcode
+      }
+      if (li.manualEntry || packedEntry.manualEntry === true) {
+        li.manualEntry = true
+      }
       if (changed) li.itemScanTime = new Date()
       return li
     })
-    doc.logs.push({
-      action: 'Packing quantities updated',
-      byUserId: req.user._id,
-      byUserName: getActorName(req.user),
-      at: new Date(),
-    })
+    if (!silentLog) {
+      doc.logs.push({
+        action: `Packing quantities updated${doc.noOfPackedBoxes ? ` (boxes: ${doc.noOfPackedBoxes})` : ''}`,
+        byUserId: req.user._id,
+        byUserName: getActorName(req.user),
+        at: new Date(),
+      })
+    }
     await doc.save()
     const updated = await SalesOrder.findById(doc._id)
       .populate('customer')
@@ -812,6 +1074,7 @@ router.patch('/orders/:id/packing', protect, requireRole('scanner_packer', 'admi
       .populate('assignedPicker', 'name username')
       .populate('assignedPacker', 'name username')
       .lean()
+    await enrichOrderWithProductData(updated)
     res.json(updated)
   } catch (e) {
     res.status(500).json({ message: 'Server error' })
@@ -830,9 +1093,11 @@ router.patch('/orders/:id/workflow', protect, requireRole(...orderWorkflowRoles)
 
     if (action === 'cancel_new') {
       if (!['sales_manager', 'admin'].includes(role)) {
-        return res.status(403).json({ message: 'Only sales manager can cancel new orders.' })
+        return res.status(403).json({ message: 'Only sales manager can cancel orders before shipment.' })
       }
-      if (doc.status !== 'new') return res.status(400).json({ message: 'Only new orders can be cancelled.' })
+      if (!['new', 'processed', 'add-on', 'packed', 'add-on-packed', 'ready-to-ship'].includes(doc.status)) {
+        return res.status(400).json({ message: 'Orders can only be cancelled before shipment.' })
+      }
       const cancelRemark = String(req.body?.remark || req.body?.cancelRemark || '').trim()
       if (!cancelRemark) return res.status(400).json({ message: 'Cancellation remark is required.' })
       doc.status = 'cancelled'
@@ -903,6 +1168,77 @@ router.patch('/orders/:id/workflow', protect, requireRole(...orderWorkflowRoles)
       if (!['scanner_packer', 'admin'].includes(role)) {
         return res.status(403).json({ message: 'Only packer can mark order packed.' })
       }
+      const totalPackedQty = Array.isArray(doc.lineItems)
+        ? doc.lineItems.reduce((sum, li) => sum + Math.max(0, Number(li?.packedQty) || 0), 0)
+        : 0
+      if (totalPackedQty <= 0) {
+        return res.status(400).json({ message: 'At least one item must be packed before marking order packed.' })
+      }
+      if (doc.status === 'add-on') {
+        const addOnPackedQty = Array.isArray(doc.lineItems)
+          ? doc.lineItems
+            .filter((li) => li?.isAddedLater)
+            .reduce((sum, li) => sum + Math.max(0, Number(li?.packedQty) || 0), 0)
+          : 0
+        if (addOnPackedQty <= 0) {
+          return res.status(400).json({ message: 'Please pack add-on items before marking add-on order packed.' })
+        }
+      }
+      const normalizedLineItems = Array.isArray(doc.lineItems)
+        ? doc.lineItems.map((li) => {
+            const originalQty = Math.max(0, Number(li?.qty) || 0)
+            const packedQty = Math.max(0, Number(li?.packedQty) || 0)
+            const packedStockDeducted = Math.max(0, Number(li?.packedStockDeducted) || 0)
+            const nextQty = packedQty
+            const qtyPerUnit = Math.max(1, Number(li?.qtyPerUnit) || 1)
+            const unitPrice = Math.max(0, Number(li?.unitPrice) || 0)
+            const lineTotal = Math.round(nextQty * unitPrice * 100) / 100
+            const originalDiscountAmount = Math.max(0, Number(li?.discountAmount) || 0)
+            const discountPercent = Math.max(0, Number(li?.discountPercent) || 0)
+            const discountPerUnit = originalQty > 0 ? originalDiscountAmount / originalQty : 0
+            const scaledDiscountAmount = originalQty > 0
+              ? discountPerUnit * nextQty
+              : (lineTotal * discountPercent) / 100
+            const discountAmount = Math.round(Math.max(0, scaledDiscountAmount) * 100) / 100
+            const netPrice = Math.round(Math.max(0, lineTotal - discountAmount) * 100) / 100
+            return {
+              ...li.toObject(),
+              qty: nextQty,
+              packedStockDeducted,
+              pieces: Math.max(0, nextQty * qtyPerUnit),
+              lineTotal,
+              discountAmount,
+              netPrice,
+            }
+          })
+        : []
+      doc.lineItems = normalizedLineItems
+      const subtotal = normalizedLineItems.reduce(
+        (sum, li) => sum + Math.max(0, Number(li?.netPrice) || 0),
+        0,
+      )
+      doc.subtotal = Math.round(subtotal * 100) / 100
+      const orderTotal = Math.max(
+        0,
+        doc.subtotal -
+          (Number(doc.overallDiscountAmount) || 0) +
+          (Number(doc.shippingCharges) || 0) +
+          (Number(doc.totalTax) || 0) +
+          (Number(doc.mlTax) || 0) +
+          (Number(doc.weightTax) || 0) +
+          (Number(doc.vapeTax) || 0) +
+          (Number(doc.adjustment) || 0),
+      )
+      doc.orderTotal = Math.round(orderTotal * 100) / 100
+      await deductPackedStockAndWriteHistory(doc, req.user)
+      doc.lineItems = (doc.lineItems || []).map((li) => {
+        const packedQty = Math.max(0, Number(li?.packedQty) || 0)
+        const packedStockDeducted = Math.max(0, Number(li?.packedStockDeducted) || 0)
+        return {
+          ...li,
+          packedStockDeducted: Math.max(packedStockDeducted, packedQty),
+        }
+      })
       if (doc.status === 'new' || doc.status === 'processed') doc.status = 'packed'
       else if (doc.status === 'add-on') doc.status = 'add-on-packed'
       else return res.status(400).json({ message: 'Only new/add-on orders can be packed.' })
@@ -918,20 +1254,64 @@ router.patch('/orders/:id/workflow', protect, requireRole(...orderWorkflowRoles)
         return res.status(403).json({ message: 'Only sales manager can assign driver.' })
       }
       if (!['packed', 'add-on-packed'].includes(doc.status)) {
-        return res.status(400).json({ message: 'Only packed/add-on-packed orders can be assigned to a driver.' })
+        return res.status(400).json({ message: 'Only packed/add-on-packed orders can be assigned.' })
       }
-      const driverId = req.body?.driverId
-      if (!driverId) return res.status(400).json({ message: 'driverId is required.' })
-      const driver = await User.findOne({ _id: driverId, role: 'driver', isActive: { $ne: false } }).lean()
-      if (!driver) return res.status(400).json({ message: 'Invalid driver selected.' })
-      doc.assignedDriver = driver._id
-      doc.status = 'ready-to-ship'
-      doc.logs.push({
-        action: `Driver assigned (${driver.name || driver.username || 'Driver'})`,
-        byUserId: req.user._id,
-        byUserName: getActorName(req.user),
-        at: new Date(),
-      })
+      const assignTargetRaw = String(req.body?.assignTarget || '').trim().toLowerCase()
+      const assignTarget = assignTargetRaw || 'driver'
+      if (!['driver', 'sales_person', 'customer', 'ups_driver'].includes(assignTarget)) {
+        return res.status(400).json({ message: 'Invalid assignTarget. Use driver, sales_person, customer, or ups_driver.' })
+      }
+      if (assignTarget === 'customer') {
+        doc.assignedDriver = undefined
+        doc.shippingType = 'Customer Pickup'
+        doc.status = 'delivered'
+        doc.deliveredAt = new Date()
+        doc.paymentStatus = 'not_paid'
+        doc.accountsNote = 'Not Paid'
+        doc.logs.push({
+          action: 'Assigned to customer (marked delivered)',
+          byUserId: req.user._id,
+          byUserName: getActorName(req.user),
+          at: new Date(),
+        })
+      } else if (assignTarget === 'sales_person') {
+        doc.assignedDriver = undefined
+        doc.shippingType = 'Sales Pickup'
+        doc.status = 'shipped'
+        doc.shippedAt = new Date()
+        doc.logs.push({
+          action: 'Assigned to sales person (marked shipped)',
+          byUserId: req.user._id,
+          byUserName: getActorName(req.user),
+          at: new Date(),
+        })
+      } else if (assignTarget === 'ups_driver') {
+        doc.assignedDriver = undefined
+        doc.shippingType = 'UPS Regular'
+        doc.status = 'delivered'
+        doc.deliveredAt = new Date()
+        doc.paymentStatus = 'not_paid'
+        doc.accountsNote = 'Not Paid'
+        doc.logs.push({
+          action: 'Assigned to UPS driver (marked delivered)',
+          byUserId: req.user._id,
+          byUserName: getActorName(req.user),
+          at: new Date(),
+        })
+      } else {
+        const driverId = req.body?.driverId
+        if (!driverId) return res.status(400).json({ message: 'driverId is required for driver assignment.' })
+        const driver = await User.findOne({ _id: driverId, role: 'driver', isActive: { $ne: false } }).lean()
+        if (!driver) return res.status(400).json({ message: 'Invalid driver selected.' })
+        doc.assignedDriver = driver._id
+        doc.status = 'ready-to-ship'
+        doc.logs.push({
+          action: `Driver assigned (${driver.name || driver.username || 'Driver'})`,
+          byUserId: req.user._id,
+          byUserName: getActorName(req.user),
+          at: new Date(),
+        })
+      }
     } else if (action === 'mark_shipped') {
       if (!['driver', 'admin'].includes(role)) {
         return res.status(403).json({ message: 'Only driver can mark order shipped.' })
@@ -989,6 +1369,7 @@ router.patch('/orders/:id/workflow', protect, requireRole(...orderWorkflowRoles)
       .populate('assignedPacker', 'name username')
       .populate('assignedDriver', 'name username')
       .lean()
+    await enrichOrderWithProductData(updated)
     return res.json(updated)
   } catch (e) {
     console.error('Update sales workflow error:', e)

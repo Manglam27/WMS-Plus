@@ -238,6 +238,10 @@ function Layout() {
                       <span>User management</span>
                       <span>›</span>
                     </Nav.Link>
+                    <Nav.Link as={NavLink} to="/admin/company-settings">
+                      <span>Company settings</span>
+                      <span>›</span>
+                    </Nav.Link>
                     <Nav.Link as={NavLink} to="/admin/logs">
                       <span>User logs</span>
                       <span>›</span>

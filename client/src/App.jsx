@@ -7,6 +7,7 @@ import RoleDashboard from './components/RoleDashboard'
 import AdminPage from './pages/AdminPage'
 import AdminUsersPage from './pages/AdminUsersPage'
 import AdminUserLogsPage from './pages/AdminUserLogsPage'
+import AdminCompanySettingsPage from './pages/AdminCompanySettingsPage'
 import InventoryUpdateStockPage from './pages/InventoryUpdateStockPage'
 import AccountsPage from './pages/AccountsPage'
 import ProductListPage from './pages/ProductListPage'
@@ -46,6 +47,7 @@ import WarehouseOrderProcessingPage from './pages/WarehouseOrderProcessingPage'
 import WarehouseTodoPage from './pages/WarehouseTodoPage'
 import WarehouseOrderOpenPage from './pages/WarehouseOrderOpenPage'
 import PackerOrderOpenPage from './pages/PackerOrderOpenPage'
+import PackerTodoPage from './pages/PackerTodoPage'
 
 function App() {
   return (
@@ -143,6 +145,14 @@ function App() {
               }
             />
             <Route
+              path="admin/company-settings"
+              element={
+                <ProtectedRoute roles={['admin']}>
+                  <AdminCompanySettingsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="warehouse/orders"
               element={
                 <ProtectedRoute roles={['order_manager', 'admin']}>
@@ -179,6 +189,14 @@ function App() {
               element={
                 <ProtectedRoute roles={['scanner_packer', 'admin']}>
                   <PackerOrderOpenPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="packer/todo"
+              element={
+                <ProtectedRoute roles={['scanner_packer', 'admin']}>
+                  <PackerTodoPage />
                 </ProtectedRoute>
               }
             />

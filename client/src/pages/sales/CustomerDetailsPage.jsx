@@ -19,6 +19,8 @@ function CustomerDetailsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [actionBusy, setActionBusy] = useState(false)
+  const [ordersVisibleCount, setOrdersVisibleCount] = useState('10')
+  const [dueVisibleCount, setDueVisibleCount] = useState('10')
 
   const role = user?.role || ''
   const isManager = role === 'sales_manager' || role === 'admin'
@@ -68,6 +70,20 @@ function CustomerDetailsPage() {
   const totalOrderAmount = orders.reduce((sum, o) => sum + (Number(o.orderTotal) || 0), 0)
   const totalPaidAmount = 0 // Placeholder until payments are wired
   const totalDueAmount = Math.max(0, totalOrderAmount - totalPaidAmount)
+  const closedOrders = useMemo(
+    () => orders.filter((o) => String(o?.status || '').toLowerCase() === 'close'),
+    [orders],
+  )
+  const visibleOrders = useMemo(
+    () => (ordersVisibleCount === 'all' ? orders : orders.slice(0, Math.max(10, Number(ordersVisibleCount) || 10))),
+    [orders, ordersVisibleCount],
+  )
+  const visibleDueOrders = useMemo(
+    () => (dueVisibleCount === 'all' ? closedOrders : closedOrders.slice(0, Math.max(10, Number(dueVisibleCount) || 10))),
+    [closedOrders, dueVisibleCount],
+  )
+  const dueTotalOrderAmount = closedOrders.reduce((sum, o) => sum + (Number(o.orderTotal) || 0), 0)
+  const dueTotalDueAmount = Math.max(0, dueTotalOrderAmount - totalPaidAmount)
 
   const handleDecision = async (decision) => {
     if (!customer?._id || !isManager || customer.status !== 'pending') return
@@ -260,14 +276,14 @@ function CustomerDetailsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {orders.length === 0 && (
+                  {visibleOrders.length === 0 && (
                     <tr>
                       <td colSpan={isManager ? 9 : 8} className="text-center text-muted">
                         No data available
                       </td>
                     </tr>
                   )}
-                  {orders.map((o) => (
+                  {visibleOrders.map((o) => (
                     <tr key={o._id}>
                       <td>{o.orderNumber || '-'}</td>
                       <td>{formatDate(o.orderDate)}</td>
@@ -301,6 +317,40 @@ function CustomerDetailsPage() {
                   </tr>
                 </tfoot>
               </Table>
+              {visibleOrders.length < orders.length && (
+                <div className="d-flex justify-content-end p-2 border-top">
+                  <div className="d-flex align-items-center gap-2">
+                    <div className="small text-muted">Rows:</div>
+                    {['10', '50', '100', 'all'].map((size) => (
+                      <button
+                        key={`orders-${size}`}
+                        type="button"
+                        className={`btn btn-sm ${ordersVisibleCount === size ? 'btn-primary' : 'btn-outline-secondary'}`}
+                        onClick={() => setOrdersVisibleCount(size)}
+                      >
+                        {size === 'all' ? 'All' : size}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {visibleOrders.length >= orders.length && orders.length > 0 && (
+                <div className="d-flex justify-content-end p-2 border-top">
+                  <div className="d-flex align-items-center gap-2">
+                    <div className="small text-muted">Rows:</div>
+                    {['10', '50', '100', 'all'].map((size) => (
+                      <button
+                        key={`orders-full-${size}`}
+                        type="button"
+                        className={`btn btn-sm ${ordersVisibleCount === size ? 'btn-primary' : 'btn-outline-secondary'}`}
+                        onClick={() => setOrdersVisibleCount(size)}
+                      >
+                        {size === 'all' ? 'All' : size}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -320,14 +370,14 @@ function CustomerDetailsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {orders.length === 0 && (
+                  {visibleDueOrders.length === 0 && (
                     <tr>
                       <td colSpan={7} className="text-center text-muted">
                         No data available
                       </td>
                     </tr>
                   )}
-                  {orders.map((o) => {
+                  {visibleDueOrders.map((o) => {
                     const days = o.orderDate
                       ? Math.max(
                           0,
@@ -352,12 +402,46 @@ function CustomerDetailsPage() {
                     <td colSpan={4} className="fw-semibold text-end">
                       Total
                     </td>
-                    <td className="fw-semibold text-end">{formatMoney(totalOrderAmount)}</td>
+                    <td className="fw-semibold text-end">{formatMoney(dueTotalOrderAmount)}</td>
                     <td className="fw-semibold text-end">{formatMoney(totalPaidAmount)}</td>
-                    <td className="fw-semibold text-end">{formatMoney(totalDueAmount)}</td>
+                    <td className="fw-semibold text-end">{formatMoney(dueTotalDueAmount)}</td>
                   </tr>
                 </tfoot>
               </Table>
+              {visibleDueOrders.length < closedOrders.length && (
+                <div className="d-flex justify-content-end p-2 border-top">
+                  <div className="d-flex align-items-center gap-2">
+                    <div className="small text-muted">Rows:</div>
+                    {['10', '50', '100', 'all'].map((size) => (
+                      <button
+                        key={`due-${size}`}
+                        type="button"
+                        className={`btn btn-sm ${dueVisibleCount === size ? 'btn-primary' : 'btn-outline-secondary'}`}
+                        onClick={() => setDueVisibleCount(size)}
+                      >
+                        {size === 'all' ? 'All' : size}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {visibleDueOrders.length >= closedOrders.length && closedOrders.length > 0 && (
+                <div className="d-flex justify-content-end p-2 border-top">
+                  <div className="d-flex align-items-center gap-2">
+                    <div className="small text-muted">Rows:</div>
+                    {['10', '50', '100', 'all'].map((size) => (
+                      <button
+                        key={`due-full-${size}`}
+                        type="button"
+                        className={`btn btn-sm ${dueVisibleCount === size ? 'btn-primary' : 'btn-outline-secondary'}`}
+                        onClick={() => setDueVisibleCount(size)}
+                      >
+                        {size === 'all' ? 'All' : size}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

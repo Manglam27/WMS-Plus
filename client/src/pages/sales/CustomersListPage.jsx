@@ -14,7 +14,7 @@ function CustomersListPage() {
   const [rows, setRows] = useState([])
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
-  const [pageSize, setPageSize] = useState('10')
+  const [visibleCount, setVisibleCount] = useState(10)
 
   const [searchDraft, setSearchDraft] = useState({
     orderNo: '',
@@ -127,10 +127,8 @@ function CustomersListPage() {
   }, [rows, appliedSearch, customerOrderIndex])
 
   const visibleRows = useMemo(() => {
-    if (pageSize === 'all') return filteredRows
-    const n = Number(pageSize) || 10
-    return filteredRows.slice(0, n)
-  }, [filteredRows, pageSize])
+    return filteredRows.slice(0, Math.max(10, Number(visibleCount) || 10))
+  }, [filteredRows, visibleCount])
 
   return (
     <>
@@ -209,8 +207,7 @@ function CustomersListPage() {
                 className="btn btn-sm btn-primary"
                 onClick={() => {
                   setAppliedSearch(searchDraft)
-                  // Keep UX: restart to first page size when search changes.
-                  setPageSize('10')
+                  setVisibleCount(10)
                 }}
               >
                 Search
@@ -310,22 +307,17 @@ function CustomersListPage() {
 
       <div className="d-flex justify-content-between align-items-center mt-3">
         <div className="small text-muted">
-          {filteredRows.length ? `Total matched: ${filteredRows.length}` : ''}
+          {filteredRows.length ? `Showing ${visibleRows.length} of ${filteredRows.length}` : ''}
         </div>
-        <Form.Select
-          size="sm"
-          value={pageSize}
-          onChange={(e) => {
-            const v = e.target.value
-            setPageSize(v)
-          }}
-          style={{ width: 160 }}
-        >
-          <option value="10">Show 10</option>
-          <option value="50">Show 50</option>
-          <option value="100">Show 100</option>
-          <option value="all">Show All</option>
-        </Form.Select>
+        {visibleRows.length < filteredRows.length && (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-primary"
+            onClick={() => setVisibleCount((n) => n + 10)}
+          >
+            Load More
+          </button>
+        )}
       </div>
     </>
   )

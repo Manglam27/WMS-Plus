@@ -3,6 +3,8 @@ import { Badge, Button, Card, Col, Form, Modal, Row, Table } from 'react-bootstr
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/api'
 
+const PACKER_VISIBLE_STATUSES = new Set(['processed', 'packed', 'add-on', 'add-on-packed'])
+
 function ScannerPackerPage() {
   const navigate = useNavigate()
   const [orders, setOrders] = useState([])
@@ -32,6 +34,7 @@ function ScannerPackerPage() {
     shippingTypes: ['all'],
   })
   const [pageSize, setPageSize] = useState('10')
+  const [todoOpenCount, setTodoOpenCount] = useState(0)
 
   const loadOrders = async () => {
     setLoading(true)
@@ -61,9 +64,24 @@ function ScannerPackerPage() {
     loadOrders()
   }, [])
 
+  useEffect(() => {
+    api
+      .get('/api/sales/warehouse/tasks')
+      .then(async (res) => {
+        const data = await res.json().catch(() => [])
+        if (!res.ok || !Array.isArray(data)) {
+          setTodoOpenCount(0)
+          return
+        }
+        const pending = data.filter((t) => ['todo', 'in_progress'].includes(String(t?.status || ''))).length
+        setTodoOpenCount(pending)
+      })
+      .catch(() => setTodoOpenCount(0))
+  }, [])
+
   const counts = useMemo(() => {
     const out = {
-      all: orders.length,
+      all: 0,
       new: 0,
       processed: 0,
       'add-on': 0,
@@ -73,6 +91,7 @@ function ScannerPackerPage() {
     }
     orders.forEach((o) => {
       const s = String(o.status || '')
+      if (PACKER_VISIBLE_STATUSES.has(s)) out.all += 1
       if (Object.prototype.hasOwnProperty.call(out, s)) out[s] += 1
     })
     return out
@@ -91,6 +110,7 @@ function ScannerPackerPage() {
     const orderNoNeedle = String(f.orderNo || '').trim().toLowerCase()
     const selectedShipping = Array.isArray(f.shippingTypes) ? f.shippingTypes.filter((x) => x !== 'all') : []
     const rows = orders.filter((o) => {
+      if (!PACKER_VISIBLE_STATUSES.has(String(o.status || ''))) return false
       if (f.salesPerson !== 'all' && String(o.salesPerson?._id || '') !== String(f.salesPerson)) return false
       if (f.customer !== 'all' && String(o.customer?._id || '') !== String(f.customer)) return false
       if (f.status !== 'all' && String(o.status || '') !== String(f.status)) return false
@@ -147,46 +167,113 @@ function ScannerPackerPage() {
     w.document.write(`
       <html>
         <head>
-          <title>${order.orderNumber || 'Order'}</title>
-          <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+          <title>${orderNo || 'Order'}</title>
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              padding: 18px;
+              color: #0f172a;
+            }
+            .print-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+              gap: 16px;
+              margin-bottom: 10px;
+            }
+            .print-title {
+              margin: 0;
+              font-size: 24px;
+              font-weight: 800;
+            }
+            .print-meta {
+              margin: 10px 0 14px;
+              border: 1px solid #cbd5e1;
+              border-radius: 8px;
+              padding: 10px 12px;
+              background: #f8fafc;
+              line-height: 1.45;
+              font-size: 14px;
+            }
+            .print-meta strong {
+              color: #1e293b;
+            }
+            .print-address {
+              margin-top: 8px;
+              border-top: 1px dashed #94a3b8;
+              padding-top: 8px;
+              white-space: pre-wrap;
+              word-break: break-word;
+            }
+            .print-table {
+              width: 100%;
+              border-collapse: collapse;
+              font-size: 13px;
+            }
+            .print-table th {
+              background: #1e293b;
+              color: #fff;
+              padding: 8px;
+              border: 1px solid #334155;
+              text-align: left;
+            }
+            .print-table td {
+              border: 1px solid #cbd5e1;
+              padding: 7px 8px;
+              vertical-align: top;
+            }
+            .text-end {
+              text-align: right;
+            }
+          </style>
         </head>
-        <body style="font-family:Arial;padding:16px;">
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
-            <div>
-              <h3 style="margin:0 0 6px 0;">Order ${orderNo}</h3>
-              <div style="font-size:12px;color:#555;">Order barcode</div>
-            </div>
+        <body>
+          <div class="print-header">
+            <h3 class="print-title">Order ${orderNo}</h3>
             <svg id="order-barcode"></svg>
           </div>
-          <hr/>
-          <div>Status: ${order.status || ''}</div>
-          <div>Customer: ${order.customer?.customerName || order.customer?.businessName || ''}</div>
-          <div>Sales Person: ${order.salesPerson?.name || order.salesPerson?.username || ''}</div>
-          <div>Shipping: ${order.shippingType || ''}</div>
-          <hr/>
-          <table border="1" cellspacing="0" cellpadding="6" style="width:100%;border-collapse:collapse;">
-            <thead><tr><th>ID</th><th>Product</th><th>Unit</th><th>Qty</th></tr></thead>
+          <div class="print-meta">
+            <div><strong>Status:</strong> ${order.status || ''}</div>
+            <div><strong>Customer:</strong> ${order.customer?.customerName || order.customer?.businessName || ''}</div>
+            <div><strong>Sales Person:</strong> ${order.salesPerson?.name || order.salesPerson?.username || ''}</div>
+            <div><strong>Shipping Type:</strong> ${order.shippingType || '-'}</div>
+            <div class="print-address"><strong>Shipping Address:</strong><br/>${order.shippingAddress || '-'}</div>
+          </div>
+          <table class="print-table">
+            <thead><tr><th>ID</th><th>Product</th><th>Unit</th><th class="text-end">Ordered Qty</th></tr></thead>
             <tbody>
-              ${(order.lineItems || []).map((l) => `<tr><td>${l.productId || ''}</td><td>${l.productName || ''}</td><td>${l.unitType || ''}</td><td>${Number(l.qty || 0)}</td></tr>`).join('')}
+              ${(order.lineItems || []).map((l) => `<tr><td>${l.productId || ''}</td><td>${l.productName || ''}</td><td>${l.unitType || ''}</td><td class="text-end">${Number(l.qty || 0)}</td></tr>`).join('')}
             </tbody>
           </table>
           <script>
-            try {
-              JsBarcode('#order-barcode', ${JSON.stringify(orderNo)}, {
-                format: 'CODE128',
-                width: 2,
-                height: 42,
-                displayValue: true,
-                fontSize: 12,
-                margin: 0,
+            window.__orderBarcodeReady = false;
+            function renderAndPrintOrder() {
+              if (window.__orderBarcodeReady) return;
+              if (typeof JsBarcode !== 'function') return;
+              window.__orderBarcodeReady = true;
+              try {
+                JsBarcode('#order-barcode', ${JSON.stringify(orderNo)}, {
+                  format: 'CODE128',
+                  width: 2,
+                  height: 40,
+                  displayValue: true,
+                  margin: 0,
+                });
+              } catch (e) {}
+              requestAnimationFrame(() => {
+                setTimeout(() => {
+                  window.focus();
+                  window.print();
+                }, 120);
               });
-            } catch (e) {}
+            }
+            window.addEventListener('load', () => setTimeout(renderAndPrintOrder, 50));
           </script>
+          <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js" onload="renderAndPrintOrder()"></script>
         </body>
       </html>
     `)
     w.document.close()
-    w.print()
   }
 
   const applyFilters = () => setFiltersApplied({ ...filtersDraft })
@@ -202,6 +289,16 @@ function ScannerPackerPage() {
     })
   }
 
+  const todoBtnStyle = useMemo(() => {
+    if (todoOpenCount === 0) {
+      return { backgroundColor: '#ffffff', borderColor: '#dee2e6', color: '#1E1E2C' }
+    }
+    if (todoOpenCount > 5) {
+      return { backgroundColor: '#dc2626', borderColor: '#dc2626', color: '#ffffff' }
+    }
+    return { backgroundColor: '#16a34a', borderColor: '#16a34a', color: '#ffffff' }
+  }, [todoOpenCount])
+
   return (
     <>
       <h2 className="mb-3">Packer Dashboard</h2>
@@ -211,6 +308,9 @@ function ScannerPackerPage() {
         <Card.Body className="d-flex flex-wrap gap-3 align-items-center">
           <Button size="sm" variant="light" className="packer-top-link-btn" onClick={() => navigate('/')}>
             All Orders
+          </Button>
+          <Button size="sm" className="packer-top-link-btn" style={todoBtnStyle} onClick={() => navigate('/packer/todo')}>
+            TO-DO ({todoOpenCount})
           </Button>
           <div className="packer-top-stat"><span>Total Orders</span><strong>{counts.all}</strong></div>
           <div className="packer-top-stat"><span>Add-On</span><strong>{counts['add-on']}</strong></div>

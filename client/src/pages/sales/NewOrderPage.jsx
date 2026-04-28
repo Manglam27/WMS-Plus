@@ -74,6 +74,7 @@ function NewOrderPage() {
   const [shippingAddress, setShippingAddress] = useState('')
 
   const [barcodeInput, setBarcodeInput] = useState('')
+  const [pickProductSearch, setPickProductSearch] = useState('')
   const [pickProductId, setPickProductId] = useState('')
   const [pickUnitType, setPickUnitType] = useState('')
   const [pickQty, setPickQty] = useState(1)
@@ -104,6 +105,7 @@ function NewOrderPage() {
   const [minPriceViolations, setMinPriceViolations] = useState([])
   const [showMinPriceModal, setShowMinPriceModal] = useState(false)
   const [priceLevelPrices, setPriceLevelPrices] = useState({})
+  const [companySettings, setCompanySettings] = useState(null)
 
   useEffect(() => {
     api.get('/api/sales/customers').then(async (res) => {
@@ -114,6 +116,16 @@ function NewOrderPage() {
       const data = await res.json().catch(() => ({}))
       if (res.ok && Array.isArray(data.items)) setProducts(data.items)
     })
+  }, [])
+
+  useEffect(() => {
+    api
+      .get('/api/company-settings')
+      .then(async (res) => {
+        const data = await res.json().catch(() => null)
+        if (res.ok && data) setCompanySettings(data)
+      })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -156,6 +168,49 @@ function NewOrderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCustomer?._id])
 
+  const subtotal = useMemo(() => lines.reduce((sum, l) => sum + (Number(l.netPrice) || 0), 0), [lines])
+
+  const taxableBase = useMemo(() => {
+    return Math.max(0, Number(subtotal) - Number(overallDiscountAmount || 0) + Number(shippingCharges || 0))
+  }, [subtotal, overallDiscountAmount, shippingCharges])
+
+  const inferredShippingState = useMemo(() => {
+    const explicit = String(selectedCustomer?.shippingAddress?.state || '').trim().toUpperCase()
+    if (explicit) return explicit
+    const text = String(shippingAddress || '').toUpperCase()
+    const match = text.match(/\b([A-Z]{2})\b(?:\s+\d{5}(?:-\d{4})?)?$/m)
+    return match?.[1] || ''
+  }, [selectedCustomer?.shippingAddress?.state, shippingAddress])
+
+  useEffect(() => {
+    const cfg = companySettings
+    if (!cfg) return
+    if (cfg.enableSalesTax === false) {
+      setTaxType('No Tax')
+      setTaxPercent(0)
+      return
+    }
+    const rules = Array.isArray(cfg.stateTaxRules) ? cfg.stateTaxRules : []
+    const st = inferredShippingState
+    const matched = rules.find((r) => {
+      if (r?.isActive === false) return false
+      if (String(r?.stateCode || '').trim().toUpperCase() !== st) return false
+      const minAmt = Math.max(0, Number(r?.minAmount) || 0)
+      const maxRaw = r?.maxAmount
+      const maxAmt = maxRaw == null || maxRaw === '' ? null : Math.max(0, Number(maxRaw) || 0)
+      if (taxableBase < minAmt) return false
+      if (maxAmt != null && taxableBase > maxAmt) return false
+      return true
+    })
+    if (matched) {
+      setTaxType('Sales Tax')
+      setTaxPercent(Math.max(0, Number(matched.taxPercent) || 0))
+      return
+    }
+    setTaxType('Sales Tax')
+    setTaxPercent(Math.max(0, Number(cfg.salesTaxPercent) || 0))
+  }, [companySettings, inferredShippingState, taxableBase])
+
   useEffect(() => {
     const customerId = selectedCustomer?._id
     if (!customerId) {
@@ -189,6 +244,37 @@ function NewOrderPage() {
     products.forEach((p) => map.set(p.productId, p))
     return map
   }, [products])
+
+  const filteredProducts = useMemo(() => {
+    const query = String(pickProductSearch || '').trim().toLowerCase()
+    if (!query) return products
+    return products.filter((p) => {
+      const idMatch = String(p?.productId || '').toLowerCase().includes(query)
+      const nameMatch = String(p?.productName || '').toLowerCase().includes(query)
+      return idMatch || nameMatch
+    })
+  }, [products, pickProductSearch])
+  const orderedFilteredProducts = useMemo(() => {
+    return [...filteredProducts].sort((a, b) => {
+      const aId = String(a?.productId || '')
+      const bId = String(b?.productId || '')
+      return aId.localeCompare(bId, undefined, { numeric: true, sensitivity: 'base' })
+    })
+  }, [filteredProducts])
+
+  const handleProductSearchKeyDown = (e) => {
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    const first = filteredProducts[0]
+    if (!first) {
+      setError('No product found for that search.')
+      return
+    }
+    setError('')
+    setPickProductId(first._id)
+    const defaultUnit = getDefaultPacking(first)
+    setPickUnitType(defaultUnit?.unitType || '')
+  }
 
   const findByBarcode = (barcode) => {
     const q = String(barcode || '').trim().toLowerCase()
@@ -239,22 +325,26 @@ function NewOrderPage() {
 
     if (sameUnitIndex >= 0) {
       setError('')
-      setLines((prev) =>
-        prev.map((line, idx) => {
-          if (idx !== sameUnitIndex) return line
-          const nextQty = Math.max(0, Number(line.qty || 0)) + qty
-          const nextPieces = nextQty * Math.max(1, Number(line.qtyPerUnit || qtyPerUnit))
-          const nextLineTotal = Math.round(nextQty * Math.max(0, Number(line.unitPrice || unitPrice)) * 100) / 100
-          const discountAmount = Math.max(0, Number(line.discountAmount || 0))
-          return {
-            ...line,
-            qty: nextQty,
-            pieces: nextPieces,
-            lineTotal: nextLineTotal,
-            netPrice: Math.max(0, nextLineTotal - discountAmount),
-          }
-        }),
-      )
+      setLines((prev) => {
+        const current = prev[sameUnitIndex]
+        if (!current) return prev
+        const nextQty = Math.max(0, Number(current.qty || 0)) + qty
+        const nextPieces = nextQty * Math.max(1, Number(current.qtyPerUnit || qtyPerUnit))
+        const nextLineTotal = Math.round(nextQty * Math.max(0, Number(current.unitPrice || unitPrice)) * 100) / 100
+        const discountAmount = Math.max(0, Number(current.discountAmount || 0))
+        const updated = {
+          ...current,
+          qty: nextQty,
+          pieces: nextPieces,
+          lineTotal: nextLineTotal,
+          netPrice: Math.max(0, nextLineTotal - discountAmount),
+        }
+        const rest = prev.filter((_, idx) => idx !== sameUnitIndex)
+        return [updated, ...rest]
+      })
+      setPickProductSearch('')
+      setPickProductId('')
+      setPickUnitType('')
       return
     }
 
@@ -264,7 +354,6 @@ function NewOrderPage() {
     const netPrice = lineTotal
     setError('')
     setLines((prev) => [
-      ...prev,
       {
         productId: product.productId,
         productName: product.productName,
@@ -283,7 +372,11 @@ function NewOrderPage() {
         isFreeItem: !!pickIsFreeItem,
         isAddedLater: false,
       },
+      ...prev,
     ])
+    setPickProductSearch('')
+    setPickProductId('')
+    setPickUnitType('')
   }
 
   const handleBarcodeKeyDown = (e) => {
@@ -335,8 +428,6 @@ function NewOrderPage() {
   }
 
   const removeLine = (idx) => () => setLines((prev) => prev.filter((_, i) => i !== idx))
-
-  const subtotal = useMemo(() => lines.reduce((sum, l) => sum + (Number(l.netPrice) || 0), 0), [lines])
 
   const handleOverallPercentChange = (value) => {
     const pct = Math.max(0, Number(value) || 0)
@@ -633,6 +724,14 @@ function NewOrderPage() {
             <Col md={4}>
               <Form.Group>
                 <Form.Label>Product <span className="text-danger">*</span></Form.Label>
+                <Form.Control
+                  className="mb-2"
+                  type="text"
+                  placeholder="Search by ID / name"
+                  value={pickProductSearch}
+                  onChange={(e) => setPickProductSearch(e.target.value)}
+                  onKeyDown={handleProductSearchKeyDown}
+                />
                 <Form.Select
                   value={pickProductId}
                   onChange={(e) => {
@@ -644,7 +743,7 @@ function NewOrderPage() {
                   }}
                 >
                   <option value="">- Select -</option>
-                  {products.map((p) => (
+                  {orderedFilteredProducts.map((p) => (
                     <option key={p._id} value={p._id}>{p.productId} - {p.productName}</option>
                   ))}
                 </Form.Select>
